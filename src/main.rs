@@ -21,17 +21,17 @@ lazy_static::lazy_static! {
     static ref APP: RwLock<App> = RwLock::new(App::new());
 }
 
-/// Version 5 https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901021
-/// Version 3.1.1 + Errata http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html
+// Version 5 https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901021
+// Version 3.1.1 + Errata http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html
 
-/// C impl example
-/// https://codepr.github.io/posts/sol-mqtt-broker/
+// C impl example
+// https://codepr.github.io/posts/sol-mqtt-broker/
 
-/// Code
-/// https://patshaughnessy.net/2018/3/15/how-rust-implements-tagged-unions
-/// https://locka99.gitbooks.io/a-guide-to-porting-c-to-rust/content/features_of_rust/types.html
-/// https://towardsdev.com/bitwise-operation-and-tricks-in-rust-5aea318c99b7
-/// https://c-for-dummies.com/blog/?p=1848
+// Code
+// https://patshaughnessy.net/2018/3/15/how-rust-implements-tagged-unions
+// https://locka99.gitbooks.io/a-guide-to-porting-c-to-rust/content/features_of_rust/types.html
+// https://towardsdev.com/bitwise-operation-and-tricks-in-rust-5aea318c99b7
+// https://c-for-dummies.com/blog/?p=1848
 #[tokio::main]
 async fn main() {
     let addr = "0.0.0.0:1883";
@@ -283,7 +283,7 @@ async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), Mq
                                 }
                                 Err(MqttError::ClientIdentifierRejected) => {
                                     let p = Packet::make_connack(
-                                        packets::enums::ConnectReturnCode::IdentifierRejected,
+                                        packets::enums::ConnectReturnCode::V4IdentifierRejected,
                                         false,
                                     )?;
                                     reply_queue.push(p);
@@ -291,7 +291,7 @@ async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), Mq
                                 }
                                 Err(MqttError::UnsupportedProtocolVersion) => {
                                     let p = Packet::make_connack(
-                                        packets::enums::ConnectReturnCode::UnacceptableProtocal,
+                                        packets::enums::ConnectReturnCode::V4UnacceptableProtocal,
                                         false,
                                     )?;
                                     reply_queue.push(p);

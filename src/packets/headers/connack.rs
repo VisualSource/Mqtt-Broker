@@ -66,6 +66,27 @@ impl FromBytes for ConnackHeader {
         let rc = iter.next().ok_or_else(|| MqttError::MissingByte)?;
         connack.return_code = ConnectReturnCode::try_from(rc)?;
 
+        // If Version 5
+
+        // Property Length
+        // Session Epiry Interval
+        // Receive Maximnum
+        // Maximum Qos
+        // Retain Available
+        // Maximum Packet Size
+        // Assigned Client Identifier
+        // Topic Alias Maximum
+        // Reason String
+        //  User Property
+        //  Wildcard Subscription Available
+        // Subscription Identifiers Available
+        // Shared Subscription Available
+        //  Server Keep Alive
+        //  Response Information
+        //  Server Reference
+        //  Authentication Method
+        // Authentication Data
+
         Ok(connack)
     }
 }

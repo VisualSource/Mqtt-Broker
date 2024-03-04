@@ -3,12 +3,16 @@ use crate::{
     packets::{
         enums::QosLevel,
         traits::{FromBytes, ToBytes},
-        utils::{self, unpack_string, unpack_u16},
+        utils::{unpack_string, unpack_u16},
     },
 };
 
 /// ### Connect Flags
 /// The Connect Flags byte contains a number of parameters specifying the behavior of the MQTT connection. It also indicates the presence or absence of fields in the payload.
+///
+/// |Bit|  7             |       6       |     5       |    4-3     |   2     |   1         |  0       |
+/// | - | - | - | - | - | - | - |  - |
+/// |   | User Name Flag | Password Flag | Will Retain | Will QOS | Will Flag | Clean Start | Reserved |
 #[derive(Debug, Default)]
 pub struct Flags(u8);
 
@@ -35,19 +39,23 @@ impl Flags {
     pub fn as_byte(&self) -> u8 {
         self.0
     }
-
+    /// #### Clean Start or Clean Session
+    /// This bit specifies whether the Connection starts a new Session or is a continuation of an existing Session.
     pub fn clean_session(&self) -> bool {
         (self.0 & 0x2) >> 1 == 1
     }
     pub fn will(&self) -> bool {
         (self.0 & 0x04) >> 2 == 1
     }
+    /// These two bits specify the QoS level to be used when publishing the Will Message.
     pub fn will_qos(&self) -> Result<QosLevel, MqttError> {
         QosLevel::try_from((self.0 & 0x18) >> 3)
     }
+    /// This bit specifies if the Will Message is to be retained when it is published.
     pub fn will_retain(&self) -> bool {
         (self.0 & 0x20) >> 5 == 1
     }
+
     pub fn has_password(&self) -> bool {
         (self.0 & 0x40) >> 6 == 1
     }
@@ -98,15 +106,20 @@ impl From<&u8> for Flags {
     }
 }
 
+///
 #[derive(Debug, Default)]
 pub struct ConnectHeader {
     pub flags: Flags,
+    /// The Keep Alive is a Two Byte Integer which is a time interval measured in seconds. It is the maximum time interval that is permitted to elapse between the point at which the Client finishes transmitting one MQTT Control Packet and the point it starts sending the next.
+    /// It is the responsibility of the Client to ensure that the interval between MQTT Control Packets being sent does not exceed the Keep Alive value.
     pub keepalive: u16,
+
     pub client_id: String,
     pub username: String,
     pub password: String,
     pub will_topic: String,
     pub will_message: String,
+    pub protocal_version: u8,
 }
 
 impl ConnectHeader {
@@ -123,6 +136,7 @@ impl ConnectHeader {
             flags,
             keepalive,
             client_id,
+            protocal_version: 4,
             username: username.unwrap_or_default(),
             password: password.unwrap_or_default(),
             will_topic: will_topic.unwrap_or_default(),
@@ -149,15 +163,29 @@ impl FromBytes for ConnectHeader {
             return Err(MqttError::UnsupportedProtocolVersion);
         }
 
-        let protocal_version = *iter.next().ok_or_else(|| MqttError::MissingByte)?;
-        // Just supporteding MQTT 3.1.1
-        if protocal_version != 4 {
+        connect_header.protocal_version = *iter.next().ok_or_else(|| MqttError::MissingByte)?;
+
+        if connect_header.protocal_version != 4 || connect_header.protocal_version != 5 {
             return Err(MqttError::UnsupportedProtocolVersion);
         }
 
         connect_header.flags = Flags::from(iter.next().ok_or_else(|| MqttError::MissingByte)?);
-
         connect_header.keepalive = unpack_u16(iter)?;
+
+        if connect_header.protocal_version == 5 {
+            // Connect Properties
+            // Property length
+
+            // Session Expiry Interval
+            // Receive Maximum
+            // Maximum Packet Size
+            // Topic Alias Maximum
+            // Request Response Information
+            // Request Problem Information
+            // User Property
+            // Authentication Method
+            // Authentication Data
+        }
 
         connect_header.client_id = unpack_string(iter)?;
 
@@ -172,6 +200,18 @@ impl FromBytes for ConnectHeader {
         }
 
         if connect_header.flags.will() {
+            if connect_header.protocal_version == 5 {
+                todo!("Implement Variable string header");
+
+                // Will Delay interval
+                // Payload Format undicator
+                // Message Expiry Interval
+                // Content Type
+                // Response Topic
+                // Correlation Data
+                // User Property
+            }
+
             connect_header.will_topic = unpack_string(iter)?;
             connect_header.will_message = unpack_string(iter)?;
         }

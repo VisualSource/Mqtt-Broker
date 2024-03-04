@@ -1,7 +1,9 @@
 use crate::error::MqttError;
 use std::mem::size_of;
-
-/// Convert 2 bytes in big-endian order into a u16
+/// Unpack a bytes into a u16
+///
+/// Integer data values are 16 bits in big-endian order: the high order byte precedes the lower order byte.
+/// This means that a 16-bit word is presented on the network as Most Significant Byte (MSB), followed by Least Significant Byte (LSB).
 pub fn unpack_u16<'a, I>(iter: &mut I) -> Result<u16, MqttError>
 where
     I: Iterator<Item = &'a u8>,
@@ -16,7 +18,9 @@ where
     Ok(u16::from_be_bytes(bytes))
 }
 
-/// Convert 4 bytes in big-endian order into a u32
+/// Unpack bytes into a u32
+///
+/// Four Byte Integer data values are 32-bit unsigned integers in big-endian order: the high order byte precedes the successively lower order bytes. This means that a 32-bit word is presented on the network as Most Significant Byte (MSB), followed by the next most Significant Byte (MSB), followed by the next most Significant Byte (MSB), followed by Least Significant Byte (LSB).
 pub fn unpack_u32<'a, I>(iter: &mut I) -> Result<u32, MqttError>
 where
     I: Iterator<Item = &'a u8>,
@@ -31,8 +35,16 @@ where
     Ok(u32::from_be_bytes(bytes))
 }
 
-/// Unpack a UTF8 string with u16 length header.
+/// Unpack a UTF-8 string with u16 header.
 /// Unless stated otherwise all UTF-8 encoded strings can have any length in the range 0 to 65535 bytes.
+///
+/// | Bit    | 7  6  5  4  3  2  1 |
+/// | ------ | :-  -  -  -  -  -  -:     |
+/// | byte 1 | String length MSB         |
+/// | byte 2 | String length LSB         |
+/// | byte 3 | UTF-8 encoded Character data |
+///
+/// [(MQTT 3.1.1) UTF-8 encoded strings](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html#_Toc442180829)
 pub fn unpack_string<'a, I>(iter: &mut I) -> Result<String, MqttError>
 where
     I: Iterator<Item = &'a u8>,
@@ -42,6 +54,7 @@ where
     unpack_string_with_len(iter, len)
 }
 
+/// Read a set of bytes
 pub fn unpack_bytes<'a, I>(iter: &mut I, len: usize) -> Result<Vec<u8>, MqttError>
 where
     I: Iterator<Item = &'a u8>,

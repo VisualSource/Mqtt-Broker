@@ -8,12 +8,61 @@ use crate::{
 
 const MAX_ENCODED_SIZE: usize = 128 * 128 * 128;
 
-/// ## MQTT Control Packet format - Fixed Header
-/// Contains two bytes on containing Packet type and flags
-/// and the other the reaining length of the packet.
+/// ### MQTT Fixed Header
+/// Each MQTT Control Packet contains a fixed header.
+///
+/// Fixed Header format
+///
+/// <table>
+///     <thead>
+///         <tr>
+///             <th>Bit</th>
+///             <th>7</th>
+///             <th>6</th>
+///             <th>5</th>
+///             <th>4</th>
+///             <th>3</th>
+///             <th>2</th>
+///             <th>1</th>
+///             <th>0</th>
+///         <tr/>
+///     </thead>
+///     <tbody>
+///        <tr>
+///           <th>byte 1</th>
+///           <td colspan="4">MQTT Control Packet type</td>
+///           <td colspan="4">Flags specific to each MQTT Control Packet type</td>
+///        </tr>
+///        <tr>
+///             <th>byte 1</th>
+///             <td colspan="8">Remaining Length</td>
+///         </tr>
+///     </tbody>
+/// </table>
+///
+/// [(MQTT 3.1.1) Fixed Header](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html#_Toc442180841)
 #[derive(Debug)]
 pub struct FixedHeader {
+    /// ### Header Flags
+    /// MQTT Control Packet type
+    ///
+    /// See [`PacketType`] for Control packet type
+    ///
+    ///
     flags: u8,
+    /// ### Remaining Length
+    /// Position: starts at byte 2.
+    ///
+    /// The Remaining Length is the number of bytes remaining within the current packet,
+    /// including data in the variable header and the payload.
+    /// The Remaining Length does not include the bytes used to encode the Remaining Length.
+    ///
+    /// The Remaining Length is encoded using a variable length encoding scheme which uses a single byte for values up to 127.
+    /// Larger values are handled as follows. The least significant seven bits of each byte encode the data,
+    /// and the most significant bit is used to indicate that there are following bytes in the representation.
+    /// Thus each byte encodes 128 values and a "continuation bit". The maximum number of bytes in the Remaining Length field is four.
+    /// [MQTT 3.1.1](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html#_Toc442180836)
+    /// [MQTT 5](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901024)
     remaining_len: usize,
 }
 
