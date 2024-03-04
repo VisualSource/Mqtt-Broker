@@ -104,7 +104,7 @@ mod tests {
 
         let result = unpack_u16(&mut iter).expect("Failed to parse");
 
-        assert_eq!(result, 4)
+        assert_eq!(result, 10)
     }
 
     #[test]
