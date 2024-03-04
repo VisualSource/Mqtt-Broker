@@ -109,6 +109,7 @@ impl From<&u8> for Flags {
 ///
 #[derive(Debug, Default)]
 pub struct ConnectHeader {
+    /// See [`Flags`]
     pub flags: Flags,
     /// The Keep Alive is a Two Byte Integer which is a time interval measured in seconds. It is the maximum time interval that is permitted to elapse between the point at which the Client finishes transmitting one MQTT Control Packet and the point it starts sending the next.
     /// It is the responsibility of the Client to ensure that the interval between MQTT Control Packets being sent does not exceed the Keep Alive value.
@@ -165,7 +166,9 @@ impl FromBytes for ConnectHeader {
 
         connect_header.protocal_version = *iter.next().ok_or_else(|| MqttError::MissingByte)?;
 
-        if connect_header.protocal_version != 4 || connect_header.protocal_version != 5 {
+        if connect_header.protocal_version != 4
+        /*|| connect_header.protocal_version != 5*/
+        {
             return Err(MqttError::UnsupportedProtocolVersion);
         }
 

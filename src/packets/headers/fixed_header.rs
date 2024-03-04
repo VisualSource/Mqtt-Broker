@@ -25,7 +25,7 @@ const MAX_ENCODED_SIZE: usize = 128 * 128 * 128;
 ///             <th>2</th>
 ///             <th>1</th>
 ///             <th>0</th>
-///         <tr/>
+///         </tr>
 ///     </thead>
 ///     <tbody>
 ///        <tr>

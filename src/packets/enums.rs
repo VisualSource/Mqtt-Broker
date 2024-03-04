@@ -62,13 +62,15 @@ pub enum PacketType {
     /// | DISCONNECT | 14 | Client to Server  | Client is disconnecting |
     Disconnect = 14,
     /// MQTT v3.1.1
+    ///
     /// | Name | Value | Direction of flow | Description |
-    /// | :--: |:----: |:-----:            | :---------: |
+    /// | :--: |:----: |:-----------------: | :---------: |
     /// | Reserved | 15 | Forbidden  | Reserved |
     ///
     /// MQTT v5
+    ///
     /// | Name | Value | Direction of flow | Description |
-    /// | :--: |:----: |:-----:            | :---------: |
+    /// | :---: |:----: | :---------------: | :---------: |
     /// | AUTH | 15 | Client to Server or Server to Client  | Authentication exchange |
     Auth = 15,
 }

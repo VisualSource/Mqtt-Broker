@@ -329,7 +329,6 @@ async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), Mq
 
         if ready.is_writable() {
             if let Some(msg) = reply_queue.pop() {
-                println!("{:#?}", msg);
                 match stream.try_write(&msg) {
                     Ok(n) => {
                         println!("Wrote {} bytes", n);
