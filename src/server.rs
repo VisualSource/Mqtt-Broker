@@ -1,11 +1,11 @@
-#[derive(Debug, Default)]
-pub struct Info {
-    client_count: usize,
-    connections_count: usize,
-    start_time: usize,
-    bytes_recv: usize,
-    bytes_send: usize,
+#[derive(Debug)]
+pub enum Event {
+    Message(Vec<u8>),
+    Disconnect,
+}
 
-    messages_send: usize,
-    messages_recv: usize,
+#[derive(Debug)]
+pub enum Request {
+    Publish(String, Vec<u8>),
+    DisconnectClient(String),
 }

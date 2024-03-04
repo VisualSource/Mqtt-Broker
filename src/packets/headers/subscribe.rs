@@ -5,7 +5,7 @@ use crate::{
     packets::{
         enums::QosLevel,
         traits::{FromBytes, ToBytes},
-        utils::{self, unpack_string, unpack_u16},
+        utils::{unpack_string, unpack_u16},
     },
 };
 
@@ -35,43 +35,6 @@ impl SubscribeHeader {
 
 impl FromBytes for SubscribeHeader {
     type Output = SubscribeHeader;
-
-    fn from_byte_stream(
-        iter: &mut std::io::Bytes<&mut std::net::TcpStream>,
-        header: Option<&super::fixed_header::FixedHeader>,
-    ) -> Result<Self::Output, MqttError> {
-        let h = header.ok_or_else(|| MqttError::MissingFixedHeader)?;
-        let mut len = h.get_remaing_len();
-        let mut sub = SubscribeHeader::default();
-        sub.packet_id = utils::stream::unpack_u16(iter)?;
-        len -= size_of::<u16>();
-
-        /*
-         * Read in a loop all remaining bytes specified by len of the Fixed Header.
-         * From now on the payload consists of 3-tuples formed by:
-         *  - topic filter (string)
-         *  - qos
-         */
-
-        while len > 0 {
-            len -= size_of::<u16>();
-
-            let topic = utils::stream::unpack_string(iter)?;
-            len -= topic.len();
-
-            let qos = QosLevel::try_from(
-                iter.next()
-                    .ok_or_else(|| MqttError::MalformedHeader)?
-                    .map_err(|e| MqttError::ByteRead(e))?,
-            )?;
-
-            len -= size_of::<u8>();
-
-            sub.tuples.push(Tuple { topic, qos });
-        }
-
-        Ok(sub)
-    }
 
     fn from_bytes<'a, I>(
         iter: &mut I,

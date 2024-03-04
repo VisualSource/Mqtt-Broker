@@ -19,15 +19,6 @@ impl AckHeader {
 impl FromBytes for AckHeader {
     type Output = AckHeader;
 
-    fn from_byte_stream(
-        iter: &mut std::io::Bytes<&mut std::net::TcpStream>,
-        _: Option<&super::fixed_header::FixedHeader>,
-    ) -> Result<Self::Output, crate::error::MqttError> {
-        let id = utils::stream::unpack_u16(iter)?;
-
-        Ok(AckHeader { packet_id: id })
-    }
-
     fn from_bytes<'a, I>(
         iter: &mut I,
         _: Option<&super::fixed_header::FixedHeader>,

@@ -134,51 +134,6 @@ impl ConnectHeader {
 impl FromBytes for ConnectHeader {
     type Output = ConnectHeader;
 
-    fn from_byte_stream(
-        iter: &mut std::io::Bytes<&mut std::net::TcpStream>,
-        header: Option<&super::fixed_header::FixedHeader>,
-    ) -> Result<Self::Output, MqttError> {
-        let mut connect_header = ConnectHeader::default();
-
-        let protocal_name = utils::stream::unpack_string(iter)?;
-        if &protocal_name != "MQTT" {
-            return Err(MqttError::UnsupportedProtocolVersion);
-        }
-
-        let protocal_version = iter
-            .next()
-            .ok_or_else(|| MqttError::MalformedHeader)?
-            .map_err(|e| MqttError::ByteRead(e))?;
-
-        if protocal_version != 4 {
-            return Err(MqttError::UnsupportedProtocolVersion);
-        }
-
-        let flags = iter
-            .next()
-            .ok_or_else(|| MqttError::MalformedHeader)?
-            .map_err(|e| MqttError::ByteRead(e))?;
-
-        connect_header.flags = Flags::from(flags);
-        connect_header.keepalive = utils::stream::unpack_u16(iter)?;
-        connect_header.client_id = utils::stream::unpack_string(iter)?;
-
-        if connect_header.flags.will() {
-            connect_header.will_topic = utils::stream::unpack_string(iter)?;
-            connect_header.will_message = utils::stream::unpack_string(iter)?;
-        }
-
-        if connect_header.flags.has_username() {
-            connect_header.username = utils::stream::unpack_string(iter)?;
-        }
-
-        if connect_header.flags.has_password() {
-            connect_header.password = utils::stream::unpack_string(iter)?;
-        }
-
-        Ok(connect_header)
-    }
-
     fn from_bytes<'a, I>(
         iter: &mut I,
         _: Option<&super::fixed_header::FixedHeader>,
@@ -205,6 +160,16 @@ impl FromBytes for ConnectHeader {
         connect_header.keepalive = unpack_u16(iter)?;
 
         connect_header.client_id = unpack_string(iter)?;
+
+        // The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters
+        // "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        if connect_header.client_id.len() == 0 {
+            if !connect_header.flags.clean_session() {
+                return Err(MqttError::ClientIdentifierRejected);
+            }
+
+            connect_header.client_id = uuid::Uuid::new_v4().to_string();
+        }
 
         if connect_header.flags.will() {
             connect_header.will_topic = unpack_string(iter)?;

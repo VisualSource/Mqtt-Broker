@@ -3,7 +3,7 @@ use std::{io::Bytes, net::TcpStream};
 use crate::error::MqttError;
 
 use self::{
-    enums::ConnectReturnCode,
+    enums::{ConnectReturnCode, QosLevel, SubackReturnCode},
     headers::{
         ack::AckHeader,
         connack::{AcknowledgeFlags, ConnackHeader},
@@ -32,8 +32,11 @@ pub enum Packet {
     Unsubscribe(FixedHeader, UnsubscribeHeader),
     SubAck(FixedHeader, SubackHeader),
     Publish(FixedHeader, PublishHeader),
+    /// A PUBACK Packet is the response to a PUBLISH Packet with QoS level 1.
     PubAck(FixedHeader, AckHeader),
+    /// A PUBREC Packet is the response to a PUBLISH Packet with QoS 2. It is the second packet of the QoS 2 protocol exchange.
     PubRec(FixedHeader, AckHeader),
+    /// A PUBREL Packet is the response to a PUBREC Packet. It is the third packet of the QoS 2 protocol exchange.
     PubRel(FixedHeader, AckHeader),
     PubComp(FixedHeader, AckHeader),
     UnsubAck(FixedHeader, AckHeader),
@@ -43,35 +46,112 @@ pub enum Packet {
 }
 
 impl Packet {
-    pub fn make_pubrec(id: u16) -> Packet {
+    pub fn make_publish(
+        dup: bool,
+        qos: QosLevel,
+        retain: bool,
+        topic: String,
+        pkt_id: Option<u16>,
+        payload: Vec<u8>,
+    ) -> Result<Vec<u8>, MqttError> {
+        let header = FixedHeader::new(enums::PacketType::Publish, dup, qos, retain, 0);
+
+        let b = PublishHeader::new(topic, pkt_id, payload);
+
+        Packet::Publish(header, b).pack()
+    }
+
+    pub fn make_pubcomp(packet_id: u16) -> Result<Vec<u8>, MqttError> {
         let header = FixedHeader::new(
-            enums::PacketType::Pubrec,
+            enums::PacketType::Puback,
             false,
-            enums::QosLevel::ExactlyOnce,
+            QosLevel::AtMostOnce,
             false,
             0,
         );
 
-        let ack = AckHeader::new(id);
-
-        Packet::PubRec(header, ack)
+        Packet::PubComp(header, AckHeader::new(packet_id)).pack()
     }
 
-    pub fn make_puback(id: u16) -> Packet {
+    pub fn make_pubrel(packet_id: u16) -> Result<Vec<u8>, MqttError> {
         let header = FixedHeader::new(
             enums::PacketType::Puback,
+            false,
+            QosLevel::AtLeastOnce,
+            false,
+            0,
+        );
+
+        Packet::PubRel(header, AckHeader::new(packet_id)).pack()
+    }
+
+    pub fn make_pubrec(packet_id: u16) -> Result<Vec<u8>, MqttError> {
+        let header = FixedHeader::new(
+            enums::PacketType::Puback,
+            false,
+            QosLevel::AtMostOnce,
+            false,
+            0,
+        );
+
+        Packet::PubRec(header, AckHeader::new(packet_id)).pack()
+    }
+
+    pub fn make_puback(pkt_id: u16) -> Result<Vec<u8>, MqttError> {
+        let header = FixedHeader::new(
+            enums::PacketType::Puback,
+            false,
+            QosLevel::AtMostOnce,
+            false,
+            0,
+        );
+
+        Packet::PubAck(header, AckHeader::new(pkt_id)).pack()
+    }
+
+    pub fn make_unsuback(pkt_id: u16) -> Result<Vec<u8>, MqttError> {
+        let header = FixedHeader::new(
+            enums::PacketType::Unsuback,
+            false,
+            QosLevel::AtMostOnce,
+            false,
+            0,
+        );
+
+        Packet::UnsubAck(header, AckHeader::new(pkt_id)).pack()
+    }
+
+    pub fn make_ping_resp() -> Result<Vec<u8>, MqttError> {
+        let header = FixedHeader::new(
+            enums::PacketType::PingResp,
             false,
             enums::QosLevel::AtMostOnce,
             false,
             0,
         );
 
-        let ack = AckHeader::new(id);
-
-        Packet::PubAck(header, ack)
+        Packet::PingResp(header).pack()
     }
 
-    pub fn make_connack(rc: ConnectReturnCode, session_present: bool) -> Packet {
+    pub fn make_suback(
+        packet_id: u16,
+        rc_list: Vec<SubackReturnCode>,
+    ) -> Result<Vec<u8>, MqttError> {
+        let header = FixedHeader::new(
+            enums::PacketType::Suback,
+            false,
+            enums::QosLevel::AtMostOnce,
+            false,
+            0,
+        );
+
+        Packet::SubAck(header, SubackHeader::new(packet_id, rc_list)).pack()
+    }
+
+    pub fn make_connack(
+        rc: ConnectReturnCode,
+        session_present: bool,
+    ) -> Result<Vec<u8>, MqttError> {
         let flags = AcknowledgeFlags::new(session_present);
         let header = FixedHeader::new(
             enums::PacketType::Connack,
@@ -81,64 +161,7 @@ impl Packet {
             0,
         );
         let cack_header = ConnackHeader::new(flags, rc);
-        Packet::ConnAck(header, cack_header)
-    }
-
-    pub fn unpack_stream(iter: &mut Bytes<&mut TcpStream>) -> Result<Packet, MqttError> {
-        let header = FixedHeader::from_byte_stream(iter, None)?;
-        let packet_type = header.get_packet_type()?;
-
-        match packet_type {
-            enums::PacketType::Connect => Ok(Self::Connect(
-                header,
-                ConnectHeader::from_byte_stream(iter, None)?,
-            )),
-            enums::PacketType::Connack => {
-                let connack = ConnackHeader::from_byte_stream(iter, None)?;
-                Ok(Self::ConnAck(header, connack))
-            }
-            enums::PacketType::Publish => {
-                let publish = PublishHeader::from_byte_stream(iter, Some(&header))?;
-
-                Ok(Self::Publish(header, publish))
-            }
-            enums::PacketType::Puback => Ok(Self::PubAck(
-                header,
-                AckHeader::from_byte_stream(iter, None)?,
-            )),
-            enums::PacketType::Pubrec => Ok(Self::PubRec(
-                header,
-                AckHeader::from_byte_stream(iter, None)?,
-            )),
-            enums::PacketType::Pubrel => Ok(Self::PubRel(
-                header,
-                AckHeader::from_byte_stream(iter, None)?,
-            )),
-            enums::PacketType::Pubcomp => Ok(Self::PubComp(
-                header,
-                AckHeader::from_byte_stream(iter, None)?,
-            )),
-            enums::PacketType::Subscribe => {
-                let subscribe = SubscribeHeader::from_byte_stream(iter, Some(&header))?;
-                Ok(Self::Subscribe(header, subscribe))
-            }
-            enums::PacketType::Suback => {
-                let h = SubackHeader::from_byte_stream(iter, Some(&header))?;
-                Ok(Self::SubAck(header, h))
-            }
-            enums::PacketType::Unsubscribe => {
-                let unsubscribe = UnsubscribeHeader::from_byte_stream(iter, Some(&header))?;
-                Ok(Self::Unsubscribe(header, unsubscribe))
-            }
-            enums::PacketType::Unsuback => Ok(Self::UnsubAck(
-                header,
-                AckHeader::from_byte_stream(iter, None)?,
-            )),
-            enums::PacketType::PingReq => Ok(Self::PingReq(header)),
-            enums::PacketType::PingResp => Ok(Self::PingResp(header)),
-            enums::PacketType::Disconnect => Ok(Self::Disconnect(header)),
-            _ => Err(MqttError::InvalidPacketType),
-        }
+        Packet::ConnAck(header, cack_header).pack()
     }
 
     pub fn unpack(bytes: &[u8]) -> Result<Packet, MqttError> {

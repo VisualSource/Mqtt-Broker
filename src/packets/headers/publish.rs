@@ -5,7 +5,7 @@ use crate::{
     packets::{
         enums::QosLevel,
         traits::{FromBytes, ToBytes},
-        utils::{self, unpack_bytes, unpack_string, unpack_u16},
+        utils::{unpack_bytes, unpack_string, unpack_u16},
     },
 };
 
@@ -28,34 +28,6 @@ impl PublishHeader {
 
 impl FromBytes for PublishHeader {
     type Output = PublishHeader;
-
-    fn from_byte_stream(
-        iter: &mut std::io::Bytes<&mut std::net::TcpStream>,
-        header: Option<&super::fixed_header::FixedHeader>,
-    ) -> Result<Self::Output, MqttError> {
-        let mut publish = PublishHeader::default();
-
-        publish.topic = utils::stream::unpack_string(iter)?;
-
-        let h = header.ok_or_else(|| MqttError::MissingFixedHeader)?;
-
-        /*
-         * Message len is calculated subtracting the length of the variable header
-         * from the Remaining Length field that is in the Fixed Header
-         */
-        let mut len = h.get_remaing_len() as usize;
-
-        if h.get_qos()? > QosLevel::AtMostOnce {
-            publish.packet_id = Some(utils::stream::unpack_u16(iter)?);
-            len -= size_of::<u16>();
-        }
-
-        len -= size_of::<u16>() + publish.topic.len();
-
-        publish.payload = utils::stream::unpack_bytes(iter, len)?;
-
-        Ok(publish)
-    }
 
     fn from_bytes<'a, I>(
         iter: &mut I,

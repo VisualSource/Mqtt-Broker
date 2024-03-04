@@ -1,11 +1,8 @@
-use std::{io::Bytes, net::TcpStream};
-
 use crate::{
     error::MqttError,
     packets::{
         enums::{PacketType, QosLevel},
-        traits::{FromBytes, ToBytes},
-        utils::unpack_string,
+        traits::FromBytes,
     },
 };
 
@@ -98,32 +95,6 @@ impl FixedHeader {
         self.remaining_len = value;
     }
 
-    fn decode_length_stream(iter: &mut Bytes<&mut TcpStream>) -> Result<usize, MqttError> {
-        let mut multiplier: usize = 1;
-        let mut value = 0;
-
-        loop {
-            let byte = iter
-                .next()
-                .ok_or_else(|| MqttError::MalformedHeader)?
-                .map_err(|e| MqttError::ByteRead(e))?;
-
-            value += ((byte & 127) as usize) * multiplier;
-
-            if multiplier > MAX_ENCODED_SIZE {
-                return Err(MqttError::MalformedRemaingLength);
-            }
-
-            multiplier *= 128;
-
-            if (byte & 128) == 0 {
-                break;
-            }
-        }
-
-        Ok(value)
-    }
-
     fn decode_length<'a, I>(iter: &mut I) -> Result<usize, MqttError>
     where
         I: Iterator<Item = &'a u8>,
@@ -185,23 +156,6 @@ impl Default for FixedHeader {
 
 impl FromBytes for FixedHeader {
     type Output = FixedHeader;
-
-    fn from_byte_stream(
-        iter: &mut std::io::Bytes<&mut std::net::TcpStream>,
-        header: Option<&FixedHeader>,
-    ) -> Result<Self::Output, MqttError> {
-        let control = iter
-            .next()
-            .ok_or_else(|| MqttError::MalformedHeader)?
-            .map_err(|e| MqttError::ByteRead(e))?;
-
-        let mut header = FixedHeader::from(control);
-
-        let len = FixedHeader::decode_length_stream(iter)?;
-        header.set_remain_len(len);
-
-        Ok(header)
-    }
 
     fn from_bytes<'a, I>(iter: &mut I, _: Option<&FixedHeader>) -> Result<Self::Output, MqttError>
     where

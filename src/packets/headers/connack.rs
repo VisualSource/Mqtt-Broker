@@ -50,29 +50,6 @@ impl ConnackHeader {
 impl FromBytes for ConnackHeader {
     type Output = ConnackHeader;
 
-    fn from_byte_stream(
-        iter: &mut std::io::Bytes<&mut std::net::TcpStream>,
-        header: Option<&super::fixed_header::FixedHeader>,
-    ) -> Result<Self::Output, MqttError> {
-        let flags = iter
-            .next()
-            .ok_or_else(|| MqttError::MalformedHeader)?
-            .map_err(|e| MqttError::ByteRead(e))?;
-
-        let mut connack = ConnackHeader::default();
-
-        connack.acknowledge_flags = AcknowledgeFlags::from(flags);
-
-        let rc = iter
-            .next()
-            .ok_or_else(|| MqttError::MalformedHeader)?
-            .map_err(|e| MqttError::ByteRead(e))?;
-
-        connack.return_code = ConnectReturnCode::try_from(rc)?;
-
-        Ok(connack)
-    }
-
     fn from_bytes<'a, I>(
         iter: &mut I,
         _: Option<&super::fixed_header::FixedHeader>,

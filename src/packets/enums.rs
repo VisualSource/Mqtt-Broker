@@ -119,3 +119,47 @@ impl Default for ConnectReturnCode {
         Self::Accepted
     }
 }
+
+#[repr(u8)]
+#[derive(Debug)]
+pub enum SubackReturnCode {
+    SuccessQosZero = 0x00,
+    SuccessQosOne = 0x01,
+    SuccessQosTwo = 0x02,
+    Failure = 0x80,
+}
+impl SubackReturnCode {
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Self::SuccessQosZero => 0x00,
+            Self::SuccessQosOne => 0x01,
+            Self::SuccessQosTwo => 0x02,
+            Self::Failure => 0x80,
+        }
+    }
+}
+
+impl TryFrom<u8> for SubackReturnCode {
+    type Error = MqttError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        SubackReturnCode::try_from(&value)
+    }
+}
+
+impl TryFrom<&u8> for SubackReturnCode {
+    type Error = MqttError;
+
+    fn try_from(value: &u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(Self::SuccessQosZero),
+            0x01 => Ok(Self::SuccessQosOne),
+            0x02 => Ok(Self::SuccessQosTwo),
+            0x80 => Ok(Self::Failure),
+            _ => Err(MqttError::Convertion(
+                value.to_string(),
+                "ReturnCode".into(),
+            )),
+        }
+    }
+}
