@@ -86,7 +86,7 @@ impl FixedHeader {
         let mut bit: u8 = 0x00;
 
         // bit 0
-        bit |= (retain as u8) << 0;
+        bit |= retain as u8;
 
         // bit 2-1
         bit |= (qos as u8) << 1;
@@ -121,7 +121,7 @@ impl FixedHeader {
     }
     pub fn set_retain(&mut self, value: bool) {
         self.flags &= !(1 << 0);
-        self.flags |= (value as u8) << 0;
+        self.flags |= value as u8
     }
     pub fn get_packet_type(&self) -> Result<PacketType, MqttError> {
         let data = (self.flags & 0xF0) >> 4;
@@ -135,7 +135,7 @@ impl FixedHeader {
         QosLevel::try_from(data)
     }
     pub fn get_retain(&self) -> bool {
-        ((self.flags & 0x01) >> 0) == 1
+        self.flags & 0x01 == 1
     }
     pub fn get_remaing_len(&self) -> usize {
         self.remaining_len
@@ -185,7 +185,7 @@ impl Default for FixedHeader {
         let mut bit: u8 = 0x00;
 
         // bit 0
-        bit |= (true as u8) << 0;
+        bit |= true as u8;
 
         // bit 2-1
         bit |= (QosLevel::ExactlyOnce as u8) << 1;
@@ -243,15 +243,15 @@ mod tests {
             header.get_qos().expect("Failed to get qos"),
             QosLevel::AtMostOnce
         );
-        assert_eq!(header.get_dup(), false);
-        assert_eq!(header.get_retain(), false);
+        assert!(!header.get_dup());
+        assert!(!header.get_retain());
     }
 
     #[test]
     fn test_header_byte_retain_default() {
         let header = FixedHeader::default();
 
-        assert_eq!(header.get_retain(), true);
+        assert!(header.get_retain());
     }
 
     #[test]
@@ -260,7 +260,7 @@ mod tests {
 
         header.set_retain(false);
 
-        assert_eq!(header.get_retain(), false);
+        assert!(!header.get_retain());
     }
 
     #[test]
@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn test_header_byte_dup_get() {
         let header = FixedHeader::default();
-        assert_eq!(header.get_dup(), true);
+        assert!(header.get_dup());
     }
 
     #[test]
@@ -291,7 +291,7 @@ mod tests {
 
         header.set_dup(false);
 
-        assert_eq!(header.get_dup(), false);
+        assert!(!header.get_dup());
     }
 
     #[test]

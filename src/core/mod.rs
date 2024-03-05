@@ -7,6 +7,7 @@ use crate::{packets::enums::QosLevel, server::Event};
 use self::{client::Client, topic::Topics};
 
 mod client;
+pub mod info;
 mod pattern;
 mod session;
 mod topic;

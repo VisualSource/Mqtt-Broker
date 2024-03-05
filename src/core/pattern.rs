@@ -1,23 +1,24 @@
 const SINGLE_LEVEL_WILD: &str = "+";
 const MULTI_LEVEL_WILD: &str = "#";
 const VARIABLE_IDENT: &str = "$";
+const SEPERATOR: char = '/';
 
 pub struct Pattern<'a> {
     pattern: Vec<&'a str>,
 }
 
 impl<'a> Pattern<'a> {
-    pub fn new(topic: &'a String) -> Self {
+    pub fn new(topic: &'a str) -> Self {
         Self {
             pattern: Self::split_inclusive(topic),
         }
     }
 
     // https://stackoverflow.com/questions/32257273/split-a-string-keeping-the-separators
-    fn split_inclusive(value: &'a String) -> Vec<&'a str> {
+    fn split_inclusive(value: &'a str) -> Vec<&'a str> {
         let mut result = Vec::new();
         let mut last: usize = 0;
-        for (index, matched) in value.match_indices("/") {
+        for (index, matched) in value.match_indices(SEPERATOR) {
             if last != index {
                 result.push(&value[last..index]);
             }
@@ -30,7 +31,7 @@ impl<'a> Pattern<'a> {
         result
     }
 
-    pub fn matches(&self, topic: &'a String) -> bool {
+    pub fn matches(&self, topic: &'a str) -> bool {
         let pattern = Self::split_inclusive(topic);
 
         let mut pattern_iter = pattern.iter();

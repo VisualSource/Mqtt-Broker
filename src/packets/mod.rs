@@ -1,4 +1,4 @@
-use std::{io::Bytes, net::TcpStream};
+use bytes::Bytes;
 
 use crate::error::MqttError;
 
@@ -52,7 +52,7 @@ impl Packet {
         retain: bool,
         topic: String,
         pkt_id: Option<u16>,
-        payload: Vec<u8>,
+        payload: Bytes,
     ) -> Result<Vec<u8>, MqttError> {
         let header = FixedHeader::new(enums::PacketType::Publish, dup, qos, retain, 0);
 
@@ -322,6 +322,8 @@ impl Packet {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use crate::packets::{
         enums::QosLevel,
         headers::{
@@ -410,7 +412,7 @@ mod tests {
 
             assert_eq!(body.payload.len(), 6);
 
-            let s = String::from_utf8(body.payload).expect("Failed to parse string");
+            let s = String::from_utf8(body.payload.to_vec()).expect("Failed to parse string");
 
             assert_eq!(&s, "Cedalo");
         } else {
@@ -525,11 +527,9 @@ mod tests {
             14,
         );
 
-        let p = PublishHeader::new(
-            "info".into(),
-            Some(2),
-            vec![0x43, 0x65, 0x64, 0x61, 0x6c, 0x6f],
-        );
+        let payload: [u8; 6] = [0x43, 0x65, 0x64, 0x61, 0x6c, 0x6f];
+
+        let p = PublishHeader::new("info".into(), Some(2), Bytes::copy_from_slice(&payload));
 
         let packet = Packet::Publish(header, p)
             .pack()

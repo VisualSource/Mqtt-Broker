@@ -194,7 +194,7 @@ impl FromBytes for ConnectHeader {
 
         // The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters
         // "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        if connect_header.client_id.len() == 0 {
+        if connect_header.client_id.is_empty() {
             if !connect_header.flags.clean_session() {
                 return Err(MqttError::ClientIdentifierRejected);
             }

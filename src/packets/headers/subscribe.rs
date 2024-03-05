@@ -82,7 +82,7 @@ impl ToBytes for SubscribeHeader {
 
         for x in &self.tuples {
             data.push(
-                vec![
+                [
                     (x.topic.len() as u16).to_be_bytes().to_vec(),
                     x.topic.as_bytes().to_vec(),
                     vec![x.qos as u8],

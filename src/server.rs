@@ -1,3 +1,5 @@
+use bytes::Bytes;
+
 #[derive(Debug)]
 pub enum Event {
     Message(Vec<u8>),
@@ -6,6 +8,7 @@ pub enum Event {
 
 #[derive(Debug)]
 pub enum Request {
-    Publish(String, Vec<u8>),
+    Publish(String, Bytes),
     DisconnectClient(String),
+    Exit,
 }

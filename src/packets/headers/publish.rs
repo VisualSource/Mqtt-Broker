@@ -1,5 +1,7 @@
 use std::mem::size_of;
 
+use bytes::Bytes;
+
 use crate::{
     error::MqttError,
     packets::{
@@ -13,14 +15,21 @@ use crate::{
 pub struct PublishHeader {
     pub topic: String,
     pub packet_id: Option<u16>,
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 }
 
 impl PublishHeader {
-    pub fn new(topic: String, packet_id: Option<u16>, payload: Vec<u8>) -> Self {
+    pub fn builder() -> Self {
+        Self {
+            topic: String::default(),
+            packet_id: None,
+            payload: Bytes::new(),
+        }
+    }
+    pub fn new(topic: String, packet_id: Option<u16>, payload: Bytes) -> Self {
         Self {
             topic,
-            packet_id: packet_id,
+            packet_id,
             payload,
         }
     }
@@ -36,7 +45,7 @@ impl FromBytes for PublishHeader {
     where
         I: Iterator<Item = &'a u8>,
     {
-        let mut publish = PublishHeader::default();
+        let mut publish = PublishHeader::builder();
 
         publish.topic = unpack_string(iter)?;
 
@@ -46,7 +55,7 @@ impl FromBytes for PublishHeader {
          * Message len is calculated subtracting the length of the variable header
          * from the Remaining Length field that is in the Fixed Header
          */
-        let mut len = h.get_remaing_len() as usize;
+        let mut len = h.get_remaing_len();
 
         if h.get_qos()? > QosLevel::AtMostOnce {
             publish.packet_id = Some(unpack_u16(iter)?);
@@ -72,7 +81,7 @@ impl ToBytes for PublishHeader {
             data.push(id.to_be_bytes().to_vec());
         }
 
-        data.push(self.payload.to_owned());
+        data.push(self.payload.to_vec());
 
         Ok(data.concat())
     }

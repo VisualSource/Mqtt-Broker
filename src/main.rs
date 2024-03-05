@@ -1,7 +1,7 @@
-use core::App;
+use core::{info::MESSAGES_PUBLISH_SENT, App};
 use error::MqttError;
 use server::{Event, Request};
-use std::io;
+use std::{io, time::Duration};
 use tokio::{
     io::{AsyncReadExt, Interest},
     net::{TcpListener, TcpStream},
@@ -11,7 +11,14 @@ use tokio::{
     },
 };
 
-use crate::packets::{enums::QosLevel, Packet};
+use crate::{
+    core::info::{
+        BYTES_RECEIVED, BYTES_SENT, CLIENTS_CONNECTED, MESSAGES_PUBLISH_RECEIVED,
+        MESSAGES_RECEIVED, MESSAGES_SENT,
+    },
+    packets::{enums::QosLevel, Packet},
+};
+mod config;
 mod core;
 mod error;
 mod packets;
@@ -32,7 +39,7 @@ lazy_static::lazy_static! {
 // https://locka99.gitbooks.io/a-guide-to-porting-c-to-rust/content/features_of_rust/types.html
 // https://towardsdev.com/bitwise-operation-and-tricks-in-rust-5aea318c99b7
 // https://c-for-dummies.com/blog/?p=1848
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() {
     let addr = "0.0.0.0:1883";
     if let Err(err) = listen(addr).await {
@@ -41,11 +48,18 @@ async fn main() {
 }
 
 async fn listen(addr: &str) -> Result<(), MqttError> {
-    let listener = TcpListener::bind(addr)
-        .await
-        .map_err(|e| MqttError::Io(e))?;
+    let listener = TcpListener::bind(addr).await.map_err(MqttError::Io)?;
 
     let (tx, mut rx) = channel::<Request>(100);
+
+    tokio::spawn(async {
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+
+            // publish new broker data
+        }
+    });
 
     tokio::spawn(async move {
         while let Some(i) = rx.recv().await {
@@ -66,6 +80,8 @@ async fn listen(addr: &str) -> Result<(), MqttError> {
                             if let Err(e) = sub.0.send(Event::Message(packet)).await {
                                 eprintln!("{}", e);
                             }
+                            MESSAGES_PUBLISH_SENT
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
                     }
                 }
@@ -76,6 +92,8 @@ async fn listen(addr: &str) -> Result<(), MqttError> {
                         }
                     }
                 }
+
+                Request::Exit => break,
             }
         }
     });
@@ -89,6 +107,7 @@ async fn listen(addr: &str) -> Result<(), MqttError> {
                     if let Err(err) = stream_handler(stream, send).await {
                         eprintln!("{}", err);
                     }
+                    CLIENTS_CONNECTED.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 });
             }
             Err(err) => {
@@ -99,6 +118,7 @@ async fn listen(addr: &str) -> Result<(), MqttError> {
 }
 
 async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), MqttError> {
+    CLIENTS_CONNECTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     println!("Connection from {}", stream.peer_addr().unwrap());
 
     let (stx, mut rx) = channel::<Event>(100);
@@ -111,7 +131,7 @@ async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), Mq
         let ready = stream
             .ready(Interest::READABLE | Interest::WRITABLE)
             .await
-            .map_err(|e| MqttError::Io(e))?;
+            .map_err(MqttError::Io)?;
 
         if ready.is_readable() {
             buf = [0; 4096];
@@ -122,6 +142,8 @@ async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), Mq
                     break;
                 }
                 Ok(n) => {
+                    BYTES_RECEIVED.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+                    MESSAGES_RECEIVED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     println!("read {} bytes", n);
                     let mut result_buffer: Vec<u8> = Vec::with_capacity(n);
                     buf.take(n as u64).read_to_end(&mut result_buffer).await?;
@@ -224,9 +246,11 @@ async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), Mq
                                 }
                                 Packet::SubAck(_, _) => todo!(),
                                 Packet::Publish(header, body) => {
+                                    MESSAGES_PUBLISH_RECEIVED
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                     tx.send(Request::Publish(body.topic, body.payload))
                                         .await
-                                        .map_err(|e| MqttError::ChannelError(e))?;
+                                        .map_err(MqttError::ChannelError)?;
 
                                     // none on qos 0
                                     // create puback on qos 1
@@ -277,7 +301,7 @@ async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), Mq
 
                             match data {
                                 Ok(data) => {
-                                    if data.len() > 0 {
+                                    if !data.is_empty() {
                                         reply_queue.push(data);
                                     }
                                 }
@@ -332,6 +356,8 @@ async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), Mq
                 match stream.try_write(&msg) {
                     Ok(n) => {
                         println!("Wrote {} bytes", n);
+                        MESSAGES_SENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        BYTES_SENT.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
 
                         if close_con {
                             break;

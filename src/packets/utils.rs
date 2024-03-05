@@ -1,3 +1,5 @@
+use bytes::{BufMut, Bytes, BytesMut};
+
 use crate::error::MqttError;
 use std::mem::size_of;
 /// Unpack a bytes into a u16
@@ -27,7 +29,7 @@ where
 {
     let bytes: [u8; size_of::<u32>()] = iter
         .take(size_of::<u32>())
-        .map(|e| *e)
+        .copied()
         .collect::<Vec<u8>>()
         .try_into()
         .map_err(|_| MqttError::MissingByte)?;
@@ -55,11 +57,11 @@ where
 }
 
 /// Read a set of bytes
-pub fn unpack_bytes<'a, I>(iter: &mut I, len: usize) -> Result<Vec<u8>, MqttError>
+pub fn unpack_bytes<'a, I>(iter: &mut I, len: usize) -> Result<bytes::Bytes, MqttError>
 where
     I: Iterator<Item = &'a u8>,
 {
-    Ok(iter.take(len).map(|e| e.to_owned()).collect())
+    Ok(Bytes::from_iter(iter.take(len).copied()))
 }
 
 pub fn unpack_string_with_len<'a, I>(iter: &mut I, len: usize) -> Result<String, MqttError>
@@ -76,7 +78,7 @@ where
         return Err(MqttError::InvalidLength);
     }
 
-    let result = String::from_utf8(chars).map_err(|e| MqttError::Utf8Error(e))?;
+    let result = String::from_utf8(chars).map_err(MqttError::Utf8Error)?;
 
     Ok(result)
 }

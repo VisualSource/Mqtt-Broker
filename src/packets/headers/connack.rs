@@ -14,8 +14,12 @@ impl AcknowledgeFlags {
         Self(session_present as u8)
     }
 
+    pub fn set_flags(&mut self, value: u8) {
+        self.0 = value;
+    }
+
     pub fn session_present(&self) -> bool {
-        (self.0 & 0x01) >> 0 == 1
+        self.0 & 0x01 == 1
     }
     pub fn set_session_present(&mut self, value: bool) {
         self.0 = value as u8;
@@ -39,6 +43,12 @@ pub struct ConnackHeader {
 }
 
 impl ConnackHeader {
+    pub fn builder() -> Self {
+        Self {
+            acknowledge_flags: AcknowledgeFlags::default(),
+            return_code: ConnectReturnCode::ImplementationSpecificError,
+        }
+    }
     pub fn new(flags: AcknowledgeFlags, rc: ConnectReturnCode) -> ConnackHeader {
         Self {
             acknowledge_flags: flags,
@@ -59,9 +69,9 @@ impl FromBytes for ConnackHeader {
     {
         let flags = iter.next().ok_or_else(|| MqttError::MissingByte)?;
 
-        let mut connack = ConnackHeader::default();
+        let mut connack = ConnackHeader::builder();
 
-        connack.acknowledge_flags = AcknowledgeFlags::from(*flags);
+        connack.acknowledge_flags.set_flags(*flags);
 
         let rc = iter.next().ok_or_else(|| MqttError::MissingByte)?;
         connack.return_code = ConnectReturnCode::try_from(rc)?;

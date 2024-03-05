@@ -58,10 +58,10 @@ impl Topics {
         tx: Sender<Event>,
     ) -> Result<(), u8> {
         if self.0.contains_key(&topic_name) {
-            let topic = self.0.get_mut(&topic_name).ok_or_else(|| 0)?;
+            let topic = self.0.get_mut(&topic_name).ok_or(0)?;
 
             if topic.contains_key(cid) {
-                let sub = topic.get_mut(cid).ok_or_else(|| 0)?;
+                let sub = topic.get_mut(cid).ok_or(0)?;
                 sub.1 = qos;
                 return Ok(());
             }
