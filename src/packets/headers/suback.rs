@@ -18,6 +18,12 @@ pub struct SubackHeader {
 }
 
 impl SubackHeader {
+    pub fn builder() -> Self {
+        Self {
+            packet_id: 0,
+            return_codes: Vec::new(),
+        }
+    }
     pub fn new(packet_id: u16, return_codes: Vec<SubackReturnCode>) -> Self {
         Self {
             packet_id,
@@ -36,7 +42,7 @@ impl FromBytes for SubackHeader {
         I: Iterator<Item = &'a u8>,
     {
         let h = header.ok_or_else(|| MqttError::MissingFixedHeader)?;
-        let mut item = SubackHeader::default();
+        let mut item = SubackHeader::builder();
 
         item.packet_id = unpack_u16(iter)?;
 

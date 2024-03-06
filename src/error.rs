@@ -7,7 +7,7 @@ use crate::core::enums::Command;
 
 #[derive(Debug, Error)]
 pub enum MqttError {
-    #[error("Unknown")]
+    #[error("Unknown Error")]
     Unknown,
 
     #[error("Failed to parse header")]

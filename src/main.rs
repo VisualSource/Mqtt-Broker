@@ -6,7 +6,6 @@ mod error;
 mod handler;
 mod listener;
 mod packets;
-mod utils;
 
 // Version 5 https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901021
 // Version 3.1.1 + Errata http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html
@@ -22,12 +21,12 @@ mod utils;
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() {
     env_logger::Builder::new()
-        .filter(None, log::LevelFilter::Info)
+        .filter(None, log::LevelFilter::Debug)
         .init();
 
     let config = ConfigBuilder::new()
         .set_port(1883)
-        .set_sys_interval(0)
+        .set_sys_interval(10)
         .build()
         .expect("Failed to start: Invalid config");
 

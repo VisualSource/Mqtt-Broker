@@ -54,7 +54,7 @@ impl ConfigBuilder {
         self
     }
 
-    pub fn build(mut self) -> Result<Config, ()> {
+    pub fn build(self) -> Result<Config, ()> {
         let host = IpAddr::from_str(&self.address).map_err(|_| ())?;
 
         let address = SocketAddr::new(host, self.port);

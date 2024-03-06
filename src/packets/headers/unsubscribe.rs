@@ -20,6 +20,12 @@ impl UnsubscribeHeader {
     pub fn new(packet_id: u16, tuples: Vec<String>) -> Self {
         Self { packet_id, tuples }
     }
+    pub fn builder() -> Self {
+        Self {
+            packet_id: 0,
+            tuples: Vec::new(),
+        }
+    }
 }
 
 impl FromBytes for UnsubscribeHeader {
@@ -35,7 +41,7 @@ impl FromBytes for UnsubscribeHeader {
         let h = header.ok_or_else(|| MqttError::MissingFixedHeader)?;
 
         let mut len = h.get_remaing_len();
-        let mut unsub = UnsubscribeHeader::default();
+        let mut unsub = UnsubscribeHeader::builder();
 
         unsub.packet_id = unpack_u16(iter)?;
         len -= size_of::<u16>();

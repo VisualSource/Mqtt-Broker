@@ -11,13 +11,16 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    core::enums::{ClientEvent, Command, ProtocalVersion},
+    core::{
+        broker_info,
+        enums::{ClientEvent, Command, ProtocalVersion},
+        queue::FifoQueue,
+    },
     error::MqttError,
     packets::{
         enums::{ConnectReturnCode, QosLevel, SubackReturnCode},
         Packet,
     },
-    utils::queue::FifoQueue,
 };
 
 type ReplyQueue = Arc<FifoQueue<Bytes>>;
@@ -31,6 +34,8 @@ pub async fn client_handler(
         "Client starting from: {}",
         stream.peer_addr().map_err(MqttError::Io)?
     );
+
+    broker_info::client_inc();
 
     let (tx, mut rx) = channel::<ClientEvent>(100);
     let (read_stream, write_stream) = stream.into_split();
@@ -50,6 +55,7 @@ pub async fn client_handler(
                     if len == 0 {
                         continue;
                     }
+                    broker_info::received_data(len);
                     debug!("Read {} Bytes with protoal: {:#?}", len, protocal);
                     let result: Result<Option<Bytes>, MqttError> = match Packet::unpack(&buf) {
                         Ok(packet) => match packet {
@@ -225,7 +231,7 @@ pub async fn client_handler(
             if let Some(message) = ws_rq.pop()? {
                 match write_stream.try_write(&message) {
                     Ok(len) => {
-                        debug!("Wrote {} bytes", len);
+                        broker_info::sent_data(len);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         continue;
@@ -263,6 +269,8 @@ pub async fn client_handler(
     }
 
     info!("Client disconnect");
+
+    broker_info::client_dec();
     Ok(())
 }
 

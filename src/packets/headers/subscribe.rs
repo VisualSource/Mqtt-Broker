@@ -21,6 +21,12 @@ impl SubscribeHeader {
     pub fn new(packet_id: u16, tuples: Vec<(String, QosLevel)>) -> Self {
         Self { packet_id, tuples }
     }
+    pub fn builder() -> Self {
+        Self {
+            packet_id: 0,
+            tuples: Vec::new(),
+        }
+    }
 }
 
 impl FromBytes for SubscribeHeader {
@@ -37,7 +43,7 @@ impl FromBytes for SubscribeHeader {
 
         let mut len = h.get_remaing_len();
 
-        let mut sub = SubscribeHeader::default();
+        let mut sub = SubscribeHeader::builder();
 
         sub.packet_id = unpack_u16(iter)?;
         len -= size_of::<u16>();

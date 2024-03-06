@@ -20,12 +20,12 @@ impl AcknowledgeFlags {
         self.0 = value;
     }
 
-    pub fn session_present(&self) -> bool {
+    /* pub fn session_present(&self) -> bool {
         self.0 & 0x01 == 1
     }
     pub fn set_session_present(&mut self, value: bool) {
         self.0 = value as u8;
-    }
+    }*/
     pub fn as_byte(&self) -> u8 {
         self.0
     }

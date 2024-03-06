@@ -34,8 +34,6 @@ To run tests, run the following command
 
 - `$SYS/broker/load/bytes/received`: The total number of bytes received since the broker started.
 
-- `$SYS/broker/load/bytes/received`: The total number of bytes received since the broker started.
-
 - `$SYS/broker/load/bytes/sent`: The total number of bytes sent since the broker started.
 
 - `$SYS/broker/clients/connected`: The number of currently connected clients

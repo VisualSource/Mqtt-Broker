@@ -491,6 +491,7 @@ mod tests {
             true,
             true,
         );
+
         let h = ConnectHeader::new(
             flags,
             60,

@@ -15,6 +15,7 @@ pub mod broker_info;
 mod client;
 pub mod enums;
 mod pattern;
+pub mod queue;
 mod session;
 mod topic;
 

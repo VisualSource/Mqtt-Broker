@@ -1,7 +1,8 @@
 use crate::config::Config;
-use crate::core::{enums::Command, App};
+use crate::core::{broker_info, enums::Command, App};
 use crate::error::MqttError;
 use crate::handler::client_handler;
+use bytes::Bytes;
 use log::debug;
 use std::time::Duration;
 use tokio::{net::TcpListener, select, sync::mpsc::channel};
@@ -22,22 +23,6 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
 
     let token = CancellationToken::new();
     let (tx, mut rx) = channel::<Command>(100);
-
-    if config.sys_interval != 0 {
-        let ctoken = token.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(config.sys_interval));
-            loop {
-                select! {
-                    _ = interval.tick() => {
-                        log::info!("Publishing borker info");
-                        // publish new broker data
-                    }
-                    _ = ctoken.cancelled() => break
-                }
-            }
-        });
-    }
 
     tokio::spawn(async move {
         let mut context = App::new();
@@ -110,8 +95,10 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                 }
                 Command::Publish { topic, payload } => {
                     let targets = context.get_matches(&topic);
+                    broker_info::received_published();
                     debug!("Publish topic: {}", topic);
                     for (target, qos) in targets {
+                        broker_info::sent_published();
                         if let Ok(packet) = Packet::make_publish(
                             false,
                             *qos,
@@ -147,7 +134,77 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                 Command::Exit => break,
             }
         }
+
+        debug!("Exiting message loop")
     });
+
+    if config.sys_interval != 0 {
+        let birge = tx.clone();
+        let ctoken = token.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(config.sys_interval));
+            loop {
+                select! {
+                    _ = interval.tick() => {
+                        log::info!("Publishing borker info");
+
+                        let (bytes_received,bytes_sent,clients_connected, messages_received,messages_sent,messages_published_received,messages_published_sent) = broker_info::get_stats();
+
+                        if birge.send(Command::Publish {
+                            topic: "$SYS/broker/load/bytes/received".into(),
+                            payload: Bytes::from(bytes_received.to_string())
+                        }).await.is_err() {
+                           break;
+                        };
+                        if birge.send(Command::Publish {
+                            topic: "$SYS/broker/load/bytes/sent".into(),
+                            payload: Bytes::from(bytes_sent.to_string())
+                        }).await.is_err() {
+                            break;
+                        };
+
+                        if birge.send(Command::Publish {
+                            topic: "$SYS/broker/clients/connected".into(),
+                            payload: Bytes::from(clients_connected.to_string())
+                        }).await.is_err() {
+                            break;
+                        };
+
+                        if birge.send(Command::Publish {
+                            topic: "$SYS/broker/messages/received".into(),
+                            payload: Bytes::from(messages_received.to_string())
+                        }).await.is_err() {
+                            break;
+                        };
+
+                        if birge.send(Command::Publish {
+                            topic: "$SYS/broker/messages/sent".into(),
+                            payload: Bytes::from(messages_sent.to_string())
+                        }).await.is_err() {
+                            break;
+                        };
+
+                        if birge.send(Command::Publish {
+                            topic: "$SYS/broker/messages/publish/sent".into(),
+                            payload: Bytes::from(messages_published_sent.to_string())
+                        }).await.is_err() {
+                            break;
+                        };
+
+                        if birge.send(Command::Publish {
+                            topic: "$SYS/broker/messages/publish/received".into(),
+                            payload: Bytes::from(messages_published_received.to_string())
+                        }).await.is_err() {
+                            break;
+                        };
+                    }
+                    _ = ctoken.cancelled() => break
+                }
+            }
+
+            debug!("Exiting sys info");
+        });
+    }
 
     select! {
         _ = async {
