@@ -11,26 +11,14 @@ use crate::{
     },
 };
 
-#[derive(Debug)]
-pub struct Tuple {
-    pub topic: String,
-    pub qos: QosLevel,
-}
-
-impl Tuple {
-    pub fn new(topic: String, qos: QosLevel) -> Self {
-        Self { topic, qos }
-    }
-}
-
 #[derive(Debug, Default)]
 pub struct SubscribeHeader {
     pub packet_id: u16,
-    pub tuples: Vec<Tuple>,
+    pub tuples: Vec<(String, QosLevel)>,
 }
 
 impl SubscribeHeader {
-    pub fn new(packet_id: u16, tuples: Vec<Tuple>) -> Self {
+    pub fn new(packet_id: u16, tuples: Vec<(String, QosLevel)>) -> Self {
         Self { packet_id, tuples }
     }
 }
@@ -71,7 +59,7 @@ impl FromBytes for SubscribeHeader {
 
             len -= size_of::<u8>();
 
-            sub.tuples.push(Tuple { topic, qos });
+            sub.tuples.push((topic, qos));
         }
 
         Ok(sub)
@@ -84,10 +72,10 @@ impl ToBytes for SubscribeHeader {
 
         bytes.put_u16(self.packet_id);
 
-        for x in &self.tuples {
-            bytes.put_u16(x.topic.len() as u16);
-            bytes.put(x.topic.as_bytes());
-            bytes.put_u8(x.qos as u8);
+        for (topic, qos) in &self.tuples {
+            bytes.put_u16(topic.len() as u16);
+            bytes.put(topic.as_bytes());
+            bytes.put_u8(*qos as u8);
         }
 
         Ok(bytes.freeze())

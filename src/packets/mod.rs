@@ -333,9 +333,7 @@ mod tests {
     use crate::packets::{
         enums::QosLevel,
         headers::{
-            publish::PublishHeader,
-            subscribe::{SubscribeHeader, Tuple},
-            unsubscribe::UnsubscribeHeader,
+            publish::PublishHeader, subscribe::SubscribeHeader, unsubscribe::UnsubscribeHeader,
         },
     };
 
@@ -445,8 +443,8 @@ mod tests {
             assert_eq!(body.packet_id, 1);
 
             assert_eq!(body.tuples.len(), 1);
-            assert_eq!(body.tuples[0].topic, "mytopic");
-            assert_eq!(body.tuples[0].qos, QosLevel::AtLeastOnce);
+            assert_eq!(body.tuples[0].0, "mytopic");
+            assert_eq!(body.tuples[0].1, QosLevel::AtLeastOnce);
         } else {
             panic!("Invalid packet");
         }
@@ -562,7 +560,7 @@ mod tests {
             12,
         );
 
-        let a = SubscribeHeader::new(1, vec![Tuple::new("mytopic".into(), QosLevel::AtLeastOnce)]);
+        let a = SubscribeHeader::new(1, vec![("mytopic".into(), QosLevel::AtLeastOnce)]);
 
         let packet = Packet::Subscribe(header, a)
             .pack()

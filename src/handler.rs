@@ -1,25 +1,17 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 
-use arcstr::ArcStr;
-use bytes::{BufMut, Bytes};
-use log::{error, info};
+use bytes::Bytes;
+use log::{debug, error, info};
 use tokio::{
-    io::{AsyncWriteExt, Interest},
     net::TcpStream,
     select,
     sync::mpsc::{channel, Sender},
-    task::{self, JoinHandle},
+    task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    core::{
-        enums::{ClientEvent, Command, ProtocalVersion},
-        App,
-    },
+    core::enums::{ClientEvent, Command, ProtocalVersion},
     error::MqttError,
     packets::{
         enums::{ConnectReturnCode, QosLevel, SubackReturnCode},
@@ -32,9 +24,8 @@ type ReplyQueue = Arc<FifoQueue<Bytes>>;
 
 pub async fn client_handler(
     stream: TcpStream,
-    message_handler: Sender<Command>,
+    message_bridge: Sender<Command>,
     cancellation: CancellationToken,
-    context: Arc<App>,
 ) -> Result<(), MqttError> {
     info!(
         "Client starting from: {}",
@@ -59,25 +50,12 @@ pub async fn client_handler(
                     if len == 0 {
                         continue;
                     }
-                    info!("Read {} Bytes", len);
+                    debug!("Read {} Bytes with protoal: {:#?}", len, protocal);
                     let result: Result<Option<Bytes>, MqttError> = match Packet::unpack(&buf) {
                         Ok(packet) => match packet {
                             Packet::Connect(_, body) => {
                                 let rc = ConnectReturnCode::Accepted;
                                 let session_present = false;
-
-                                if context.has_client(&body.client_id)? {
-                                    // If the ClientId represents a Client already connected to the Server then the
-                                    // Server MUST disconnect the existing Client.
-                                    message_handler
-                                        .send(Command::DisconnectClient(body.client_id.clone()))
-                                        .await
-                                        .map_err(MqttError::ChannelError)?;
-                                }
-
-                                cid = Some(body.client_id.clone());
-
-                                context.add_client(body.client_id.clone(), tx.clone())?;
 
                                 protocal = if body.protocal_version == 4 {
                                     ProtocalVersion::Four
@@ -85,58 +63,84 @@ pub async fn client_handler(
                                     ProtocalVersion::Five
                                 };
 
-                                if body.flags.clean_session() {
-                                    context.clear_user_session(&body.client_id)?;
+                                let (r_tx, r_rx) =
+                                    tokio::sync::oneshot::channel::<Result<(), MqttError>>();
+
+                                cid = Some(body.client_id.clone());
+
+                                if message_bridge
+                                    .send(Command::RegisterClient {
+                                        id: body.client_id,
+                                        message_channel: tx.clone(),
+                                        protocal,
+                                        clean_session: body.flags.clean_session(),
+                                        callback: r_tx,
+                                    })
+                                    .await
+                                    .is_err()
+                                {
+                                    error!("Receiver dropped. Closing");
+                                    return Ok(());
                                 }
+
+                                r_rx.await.map_err(|_| MqttError::QueuePoisonError)??;
 
                                 Ok(Some(Packet::make_connack(rc, session_present)?))
                             }
                             Packet::Subscribe(_, body) => {
                                 let id = cid.as_ref().ok_or_else(|| MqttError::FailedToGetCId)?;
-                                let mut codes = Vec::<SubackReturnCode>::new();
 
-                                for code in body.tuples {
-                                    let result = context.add_subscriber_to_topic(
-                                        code.topic,
-                                        id,
-                                        code.qos,
-                                        tx.clone(),
-                                    );
+                                let (r_tx, r_rx) = tokio::sync::oneshot::channel::<
+                                    Result<Vec<SubackReturnCode>, MqttError>,
+                                >();
 
-                                    if result.is_ok() {
-                                        let code = match code.qos {
-                                            QosLevel::AtMostOnce => {
-                                                SubackReturnCode::SuccessQosZero
-                                            }
-                                            QosLevel::AtLeastOnce => {
-                                                SubackReturnCode::SuccessQosOne
-                                            }
-                                            QosLevel::ExactlyOnce => {
-                                                SubackReturnCode::SuccessQosTwo
-                                            }
-                                        };
-
-                                        codes.push(code);
-
-                                        continue;
-                                    }
-
-                                    codes.push(SubackReturnCode::Failure);
+                                if message_bridge
+                                    .send(Command::Subscribe {
+                                        client: id.clone(),
+                                        topics: body.tuples,
+                                        callback: r_tx,
+                                    })
+                                    .await
+                                    .is_err()
+                                {
+                                    error!("Receiver dropped!");
+                                    return Ok(());
                                 }
+
+                                let codes =
+                                    r_rx.await.map_err(|_| MqttError::QueuePoisonError)??;
 
                                 Ok(Some(Packet::make_suback(body.packet_id, codes)?))
                             }
                             Packet::Unsubscribe(_, body) => {
                                 let id = cid.as_ref().ok_or_else(|| MqttError::FailedToGetCId)?;
-                                for sub in body.tuples {
-                                    context.remove_subscriber_from_topic(&sub, id)?;
+
+                                let (r_tx, r_rx) =
+                                    tokio::sync::oneshot::channel::<Result<(), MqttError>>();
+
+                                if message_bridge
+                                    .send(Command::Unsubscribe {
+                                        topics: body.tuples,
+                                        client: id.clone(),
+                                        callback: r_tx,
+                                    })
+                                    .await
+                                    .is_err()
+                                {
+                                    error!("Receiver dropped. Closing");
+                                    return Ok(());
                                 }
+
+                                r_rx.await.map_err(|_| MqttError::QueuePoisonError)??;
 
                                 Ok(Some(Packet::make_unsuback(body.packet_id)?))
                             }
                             Packet::Publish(header, body) => {
-                                message_handler
-                                    .send(Command::Publish(body.topic.clone(), body.payload))
+                                message_bridge
+                                    .send(Command::Publish {
+                                        topic: body.topic,
+                                        payload: body.payload,
+                                    })
                                     .await
                                     .map_err(MqttError::ChannelError)?;
 
@@ -174,7 +178,15 @@ pub async fn client_handler(
                             Packet::Disconnect(_) => {
                                 let id = cid.as_ref().ok_or_else(|| MqttError::FailedToGetCId)?;
 
-                                context.remove_client(id)?;
+                                if message_bridge
+                                    .send(Command::DisconnectClient(id.clone()))
+                                    .await
+                                    .is_err()
+                                {
+                                    error!("Receiver dropped. Closing");
+                                    return Ok(());
+                                }
+
                                 return Ok(());
                             }
 
@@ -207,13 +219,13 @@ pub async fn client_handler(
 
     let ws_rq = reply_queue.clone();
     let write_handle = tokio::spawn(async move {
-        info!("Starting write task");
+        debug!("Starting write task");
         loop {
             write_stream.writable().await?;
             if let Some(message) = ws_rq.pop()? {
                 match write_stream.try_write(&message) {
                     Ok(len) => {
-                        info!("Wrote {} bytes", len);
+                        debug!("Wrote {} bytes", len);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         continue;

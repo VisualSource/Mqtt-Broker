@@ -6,7 +6,7 @@ use crate::packets::enums::QosLevel;
 
 use super::{enums::ClientEvent, pattern::Pattern};
 
-type Subscriber = (Sender<ClientEvent>, QosLevel);
+pub type Subscriber = (Sender<ClientEvent>, QosLevel);
 type Subscribers = HashMap<String, Subscriber>;
 
 // # Wildcard

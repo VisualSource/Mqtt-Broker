@@ -1,3 +1,5 @@
+use std::fmt::{write, Display};
+
 use crate::error::MqttError;
 
 /// ### MQTT Control Packet type
@@ -114,6 +116,16 @@ pub enum QosLevel {
     ///
     /// This is the highest quality of service, for use when neither loss nor duplication of messages are acceptable. There is an increased overhead associated with this quality of service.
     ExactlyOnce,
+}
+
+impl Display for QosLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QosLevel::AtMostOnce => write!(f, "Qos 0 (At Most Once)"),
+            QosLevel::AtLeastOnce => write!(f, "Qos 1 (At Least Once)"),
+            QosLevel::ExactlyOnce => write!(f, "Qos 2 (Ecactly Once)"),
+        }
+    }
 }
 
 impl TryFrom<u8> for QosLevel {
