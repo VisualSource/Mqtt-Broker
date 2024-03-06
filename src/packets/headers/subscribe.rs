@@ -1,5 +1,7 @@
 use std::mem::size_of;
 
+use bytes::{BufMut, Bytes, BytesMut};
+
 use crate::{
     error::MqttError,
     packets::{
@@ -77,20 +79,17 @@ impl FromBytes for SubscribeHeader {
 }
 
 impl ToBytes for SubscribeHeader {
-    fn to_bytes(&self) -> Result<Vec<u8>, MqttError> {
-        let mut data = vec![self.packet_id.to_be_bytes().to_vec()];
+    fn to_bytes(&self) -> Result<Bytes, MqttError> {
+        let mut bytes = BytesMut::new();
+
+        bytes.put_u16(self.packet_id);
 
         for x in &self.tuples {
-            data.push(
-                [
-                    (x.topic.len() as u16).to_be_bytes().to_vec(),
-                    x.topic.as_bytes().to_vec(),
-                    vec![x.qos as u8],
-                ]
-                .concat(),
-            );
+            bytes.put_u16(x.topic.len() as u16);
+            bytes.put(x.topic.as_bytes());
+            bytes.put_u8(x.qos as u8);
         }
 
-        Ok(data.concat())
+        Ok(bytes.freeze())
     }
 }

@@ -19,7 +19,7 @@ impl Topics {
         Self(HashMap::new())
     }
 
-    pub fn get_matches(&self, topic: &String) -> Vec<&Subscriber> {
+    pub fn get_matches(&self, topic: &str) -> Vec<&Subscriber> {
         let pattern = Pattern::new(topic);
 
         let data: Vec<&Subscriber> = self

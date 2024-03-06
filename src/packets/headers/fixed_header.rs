@@ -1,12 +1,13 @@
+use bytes::{BufMut, BytesMut};
+
 use crate::{
     error::MqttError,
     packets::{
         enums::{PacketType, QosLevel},
         traits::FromBytes,
+        utils::decode_length,
     },
 };
-
-const MAX_ENCODED_SIZE: usize = 128 * 128 * 128;
 
 /// ### MQTT Fixed Header
 /// Each MQTT Control Packet contains a fixed header.
@@ -103,8 +104,8 @@ impl FixedHeader {
         }
     }
 
-    pub fn as_byte(&self) -> u8 {
-        self.flags
+    pub fn as_byte(&self, buf: &mut BytesMut) {
+        buf.put_u8(self.flags);
     }
 
     pub fn set_packet_type(&mut self, value: PacketType) {
@@ -142,32 +143,6 @@ impl FixedHeader {
     }
     pub fn set_remain_len(&mut self, value: usize) {
         self.remaining_len = value;
-    }
-
-    fn decode_length<'a, I>(iter: &mut I) -> Result<usize, MqttError>
-    where
-        I: Iterator<Item = &'a u8>,
-    {
-        let mut multiplier: usize = 1;
-        let mut value = 0;
-
-        loop {
-            let byte = iter.next().ok_or_else(|| MqttError::MissingByte)?;
-
-            value += ((byte & 127) as usize) * multiplier;
-
-            if multiplier > MAX_ENCODED_SIZE {
-                return Err(MqttError::MalformedRemaingLength);
-            }
-
-            multiplier *= 128;
-
-            if (byte & 128) == 0 {
-                break;
-            }
-        }
-
-        Ok(value)
     }
 }
 
@@ -210,10 +185,9 @@ impl FromBytes for FixedHeader {
     where
         I: Iterator<Item = &'a u8>,
     {
-        let control = *iter.next().ok_or_else(|| MqttError::MissingByte)?;
-        let mut header = FixedHeader::from(control);
+        let mut header = FixedHeader::from(*iter.next().ok_or_else(|| MqttError::MissingByte)?);
 
-        let len = FixedHeader::decode_length(iter)?;
+        let len = decode_length(iter)?;
         header.set_remain_len(len);
 
         Ok(header)
@@ -307,36 +281,5 @@ mod tests {
         header.set_packet_type(PacketType::Disconnect);
 
         assert_eq!(header.get_packet_type().unwrap(), PacketType::Disconnect);
-    }
-
-    #[test]
-    fn test_decode_single_byte() {
-        let byte: [u8; 1] = [0x1e];
-
-        let mut iter = byte.iter();
-
-        let value = FixedHeader::decode_length(&mut iter).expect("Failed to decode");
-
-        assert_eq!(value, 30)
-    }
-
-    #[test]
-    fn test_decode_two_bytes() {
-        let bytes: [u8; 2] = [193, 2];
-
-        let mut iter = bytes.iter();
-
-        let value = FixedHeader::decode_length(&mut iter).unwrap();
-        assert_eq!(value, 321);
-    }
-
-    #[test]
-    fn test_decode_two_bytes_with_extra() {
-        let bytes: [u8; 3] = [193, 2, 123];
-
-        let mut iter = bytes.iter();
-
-        let value = FixedHeader::decode_length(&mut iter).unwrap();
-        assert_eq!(value, 321);
     }
 }

@@ -1,3 +1,5 @@
+use bytes::{BufMut, Bytes, BytesMut};
+
 use crate::{
     error::MqttError,
     packets::{
@@ -232,42 +234,38 @@ impl FromBytes for ConnectHeader {
 }
 
 impl ToBytes for ConnectHeader {
-    fn to_bytes(&self) -> Result<Vec<u8>, MqttError> {
-        let mut body = vec![
-            vec![
-                0x00,
-                0x04,
-                0x4d,
-                0x51,
-                0x54,
-                0x54, // Protocal
-                0x04, // Version
-                self.flags.as_byte(),
-            ],
-            self.keepalive.to_be_bytes().to_vec(),
-            (self.client_id.len() as u16).to_be_bytes().to_vec(),
-            self.client_id.as_bytes().to_vec(),
-        ];
+    fn to_bytes(&self) -> Result<Bytes, MqttError> {
+        let mut bytes = BytesMut::new();
+
+        bytes.put_u16(4); // str len
+        bytes.put_slice(b"MQTT");
+        bytes.put_u8(4); // protocal version
+        bytes.put_u8(self.flags.as_byte());
+
+        bytes.put_u16(self.keepalive);
+
+        bytes.put_u16(self.client_id.len() as u16);
+        bytes.put(self.client_id.as_bytes());
 
         if self.flags.will() {
-            body.push((self.will_topic.len() as u16).to_be_bytes().to_vec());
-            body.push(self.will_topic.as_bytes().to_vec());
+            bytes.put_u16(self.will_topic.len() as u16);
+            bytes.put(self.will_topic.as_bytes());
 
-            body.push((self.will_message.len() as u16).to_be_bytes().to_vec());
-            body.push(self.will_message.as_bytes().to_vec());
+            bytes.put_u16(self.will_message.len() as u16);
+            bytes.put(self.will_message.as_bytes());
         }
 
         if self.flags.has_username() {
-            body.push((self.username.len() as u16).to_be_bytes().to_vec());
-            body.push(self.username.as_bytes().to_vec());
+            bytes.put_u16(self.username.len() as u16);
+            bytes.put(self.username.as_bytes());
         }
 
         if self.flags.has_password() {
-            body.push((self.password.len() as u16).to_be_bytes().to_vec());
-            body.push(self.password.as_bytes().to_vec());
+            bytes.put_u16(self.password.len() as u16);
+            bytes.put(self.password.as_bytes());
         }
 
-        Ok(body.concat())
+        Ok(bytes.freeze())
     }
 }
 

@@ -1,7 +1,9 @@
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use crate::error::MqttError;
 use std::mem::size_of;
+const MAX_ENCODED_SIZE: usize = 128 * 128 * 128;
+const MAX_ENCODED_BYTES: usize = 4;
 /// Unpack a bytes into a u16
 ///
 /// Integer data values are 16 bits in big-endian order: the high order byte precedes the lower order byte.
@@ -83,11 +85,118 @@ where
     Ok(result)
 }
 
+pub fn decode_length<'a, I>(iter: &mut I) -> Result<usize, MqttError>
+where
+    I: Iterator<Item = &'a u8>,
+{
+    let mut multiplier: usize = 1;
+    let mut value = 0;
+
+    loop {
+        let byte = iter.next().ok_or_else(|| MqttError::MissingByte)?;
+
+        value += ((byte & 127) as usize) * multiplier;
+
+        if multiplier > MAX_ENCODED_SIZE {
+            return Err(MqttError::MalformedRemaingLength);
+        }
+
+        multiplier *= 128;
+
+        if (byte & 128) == 0 {
+            break;
+        }
+    }
+
+    Ok(value)
+}
+
+pub fn encode_length(len: usize, bytes: &mut BytesMut) {
+    let mut mlen = len;
+    loop {
+        if bytes.len() + 1 > MAX_ENCODED_BYTES {
+            return;
+        }
+
+        let mut d = mlen % 128;
+        mlen /= 128;
+
+        if mlen > 0 {
+            d |= 128;
+        }
+
+        bytes.put_u8(d as u8);
+
+        if mlen == 0 {
+            break;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use bytes::BytesMut;
+
     use crate::packets::utils::unpack_u32;
 
-    use super::{unpack_string, unpack_u16};
+    use super::{decode_length, encode_length, unpack_string, unpack_u16};
+
+    #[test]
+    fn test_encode_single_byte() {
+        let len: usize = 0x1e;
+        let mut bytes = BytesMut::new();
+        encode_length(len, &mut bytes);
+        let result = bytes.freeze();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], 30);
+    }
+
+    #[test]
+    fn test_encode_two_bytes() {
+        let len: usize = 321;
+
+        let mut bytes = BytesMut::new();
+
+        encode_length(len, &mut bytes);
+
+        let result = bytes.freeze();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], 193);
+        assert_eq!(result[1], 2);
+    }
+
+    #[test]
+    fn test_decode_single_byte() {
+        let byte: [u8; 1] = [0x1e];
+
+        let mut iter = byte.iter();
+
+        let value = decode_length(&mut iter).expect("Failed to decode");
+
+        assert_eq!(value, 30)
+    }
+
+    #[test]
+    fn test_decode_two_bytes() {
+        let bytes: [u8; 2] = [193, 2];
+
+        let mut iter = bytes.iter();
+
+        let value = decode_length(&mut iter).unwrap();
+        assert_eq!(value, 321);
+    }
+
+    #[test]
+    fn test_decode_two_bytes_with_extra() {
+        let bytes: [u8; 3] = [193, 2, 123];
+
+        let mut iter = bytes.iter();
+
+        let value = decode_length(&mut iter).unwrap();
+        assert_eq!(value, 321);
+    }
 
     #[test]
     fn test_unpack_u32() {

@@ -1,3 +1,5 @@
+use bytes::{BufMut, Bytes, BytesMut};
+
 use crate::{
     error::MqttError,
     packets::{
@@ -102,10 +104,13 @@ impl FromBytes for ConnackHeader {
 }
 
 impl ToBytes for ConnackHeader {
-    fn to_bytes(&self) -> Result<Vec<u8>, MqttError> {
-        Ok(vec![
-            self.acknowledge_flags.as_byte(),
-            (self.return_code as u8),
-        ])
+    fn to_bytes(&self) -> Result<Bytes, MqttError> {
+        let mut bytes = BytesMut::new();
+
+        bytes.put_u8(self.acknowledge_flags.as_byte());
+
+        bytes.put_u8(self.return_code as u8);
+
+        Ok(bytes.freeze())
     }
 }

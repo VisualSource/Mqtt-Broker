@@ -1,6 +1,8 @@
+use bytes::{BufMut, Bytes, BytesMut};
+
 use crate::packets::{
     traits::{FromBytes, ToBytes},
-    utils::{self, unpack_u16},
+    utils::unpack_u16,
 };
 
 /// Packets Puback,Pubrec,Pubrel,Pubcomp, Unsuback,PingReq,PingResp, Disconnect
@@ -33,7 +35,11 @@ impl FromBytes for AckHeader {
 }
 
 impl ToBytes for AckHeader {
-    fn to_bytes(&self) -> Result<Vec<u8>, crate::error::MqttError> {
-        Ok(self.packet_id.to_be_bytes().to_vec())
+    fn to_bytes(&self) -> Result<Bytes, crate::error::MqttError> {
+        let mut bytes = BytesMut::with_capacity(2);
+
+        bytes.put_u16(self.packet_id);
+
+        Ok(bytes.freeze())
     }
 }

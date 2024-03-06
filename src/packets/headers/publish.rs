@@ -1,6 +1,6 @@
 use std::mem::size_of;
 
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::{
     error::MqttError,
@@ -71,18 +71,18 @@ impl FromBytes for PublishHeader {
 }
 
 impl ToBytes for PublishHeader {
-    fn to_bytes(&self) -> Result<Vec<u8>, MqttError> {
-        let mut data = vec![
-            (self.topic.len() as u16).to_be_bytes().to_vec(),
-            self.topic.as_bytes().to_vec(),
-        ];
+    fn to_bytes(&self) -> Result<Bytes, MqttError> {
+        let mut bytes = BytesMut::new();
+
+        bytes.put_u16(self.topic.len() as u16);
+        bytes.put(self.topic.as_bytes());
 
         if let Some(id) = self.packet_id {
-            data.push(id.to_be_bytes().to_vec());
+            bytes.put_u16(id);
         }
 
-        data.push(self.payload.to_vec());
+        bytes.put(self.payload.clone());
 
-        Ok(data.concat())
+        Ok(bytes.freeze())
     }
 }

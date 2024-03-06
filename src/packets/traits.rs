@@ -1,3 +1,5 @@
+use bytes::Bytes;
+
 use crate::error::MqttError;
 
 use super::headers::fixed_header::FixedHeader;
@@ -13,5 +15,5 @@ pub trait FromBytes {
 }
 
 pub trait ToBytes {
-    fn to_bytes(&self) -> Result<Vec<u8>, MqttError>;
+    fn to_bytes(&self) -> Result<Bytes, MqttError>;
 }

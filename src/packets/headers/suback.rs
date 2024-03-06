@@ -1,5 +1,7 @@
 use std::mem::size_of;
 
+use bytes::{BufMut, Bytes, BytesMut};
+
 use crate::{
     error::MqttError,
     packets::{
@@ -53,12 +55,15 @@ impl FromBytes for SubackHeader {
 }
 
 impl ToBytes for SubackHeader {
-    fn to_bytes(&self) -> Result<Vec<u8>, MqttError> {
-        let data = vec![
-            self.packet_id.to_be_bytes().to_vec(),
-            self.return_codes.iter().map(|x| x.to_u8()).collect(),
-        ];
+    fn to_bytes(&self) -> Result<Bytes, MqttError> {
+        let mut bytes = BytesMut::new();
 
-        Ok(data.concat())
+        bytes.put_u16(self.packet_id);
+
+        self.return_codes.iter().for_each(|e| {
+            bytes.put_u8(e.to_u8());
+        });
+
+        Ok(bytes.freeze())
     }
 }

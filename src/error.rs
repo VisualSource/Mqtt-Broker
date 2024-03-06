@@ -47,4 +47,7 @@ pub enum MqttError {
 
     #[error("Failed to get client id")]
     FailedToGetCId,
+
+    #[error("PoisonError")]
+    QueuePoisonError,
 }

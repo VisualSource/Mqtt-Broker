@@ -1,28 +1,19 @@
-use core::{info::MESSAGES_PUBLISH_SENT, App};
+use core::{enums::Command, App};
 use error::MqttError;
-use server::{Event, Request};
-use std::{io, time::Duration};
+use handler::client_handler;
 use tokio::{
-    io::{AsyncReadExt, Interest},
-    net::{TcpListener, TcpStream},
-    sync::{
-        mpsc::{channel, error::TryRecvError, Sender},
-        RwLock,
-    },
+    net::TcpListener,
+    select,
+    sync::{mpsc::channel, RwLock},
 };
 
-use crate::{
-    core::info::{
-        BYTES_RECEIVED, BYTES_SENT, CLIENTS_CONNECTED, MESSAGES_PUBLISH_RECEIVED,
-        MESSAGES_RECEIVED, MESSAGES_SENT,
-    },
-    packets::{enums::QosLevel, Packet},
-};
 mod config;
 mod core;
 mod error;
+mod handler;
 mod packets;
 mod server;
+mod utils;
 
 lazy_static::lazy_static! {
     static ref APP: RwLock<App> = RwLock::new(App::new());
@@ -41,6 +32,9 @@ lazy_static::lazy_static! {
 // https://c-for-dummies.com/blog/?p=1848
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() {
+    env_logger::Builder::new()
+        .filter(None, log::LevelFilter::Info)
+        .init();
     let addr = "0.0.0.0:1883";
     if let Err(err) = listen(addr).await {
         eprintln!("{}", err);
@@ -49,10 +43,9 @@ async fn main() {
 
 async fn listen(addr: &str) -> Result<(), MqttError> {
     let listener = TcpListener::bind(addr).await.map_err(MqttError::Io)?;
+    let (tx, mut rx) = channel::<Command>(100);
 
-    let (tx, mut rx) = channel::<Request>(100);
-
-    tokio::spawn(async {
+    /*tokio::spawn(async {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         loop {
             interval.tick().await;
@@ -96,27 +89,36 @@ async fn listen(addr: &str) -> Result<(), MqttError> {
                 Request::Exit => break,
             }
         }
-    });
+    });*/
 
-    loop {
-        match listener.accept().await {
-            Ok((stream, _)) => {
-                let send = tx.clone();
-
-                tokio::spawn(async move {
-                    if let Err(err) = stream_handler(stream, send).await {
-                        eprintln!("{}", err);
+    select! {
+        _ = async {
+            loop {
+                match listener.accept().await {
+                    Ok((stream, _)) => {
+                        let send = tx.clone();
+                        tokio::spawn(async move {
+                            if let Err(err) = client_handler(stream, send).await {
+                               log::error!("{}", err);
+                            }
+                        });
                     }
-                    CLIENTS_CONNECTED.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                });
+                    Err(err) => {
+                        log::error!("{}", err);
+                    }
+                }
             }
-            Err(err) => {
-                eprintln!("{}", err);
-            }
+
+        } => {
+            Ok(())
+        }
+        _ = tokio::signal::ctrl_c() => {
+            log::info!("Exit");
+            Ok(())
         }
     }
 }
-
+/*
 async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), MqttError> {
     CLIENTS_CONNECTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     println!("Connection from {}", stream.peer_addr().unwrap());
@@ -376,3 +378,4 @@ async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), Mq
 
     Ok(())
 }
+*/

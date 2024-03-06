@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::error::MqttError;
 
@@ -15,14 +15,13 @@ use self::{
         unsubscribe::UnsubscribeHeader,
     },
     traits::{FromBytes, ToBytes},
+    utils::encode_length,
 };
 
 pub mod enums;
 mod headers;
 mod traits;
 mod utils;
-
-const MAX_LEN_BYTES: usize = 4;
 
 #[derive(Debug)]
 pub enum Packet {
@@ -53,115 +52,121 @@ impl Packet {
         topic: String,
         pkt_id: Option<u16>,
         payload: Bytes,
-    ) -> Result<Vec<u8>, MqttError> {
-        let header = FixedHeader::new(enums::PacketType::Publish, dup, qos, retain, 0);
-
-        let b = PublishHeader::new(topic, pkt_id, payload);
-
-        Packet::Publish(header, b).pack()
+    ) -> Result<Bytes, MqttError> {
+        Packet::Publish(
+            FixedHeader::new(enums::PacketType::Publish, dup, qos, retain, 0),
+            PublishHeader::new(topic, pkt_id, payload),
+        )
+        .pack()
     }
 
-    pub fn make_pubcomp(packet_id: u16) -> Result<Vec<u8>, MqttError> {
-        let header = FixedHeader::new(
-            enums::PacketType::Puback,
-            false,
-            QosLevel::AtMostOnce,
-            false,
-            0,
-        );
-
-        Packet::PubComp(header, AckHeader::new(packet_id)).pack()
+    pub fn make_pubcomp(packet_id: u16) -> Result<Bytes, MqttError> {
+        Packet::PubComp(
+            FixedHeader::new(
+                enums::PacketType::Puback,
+                false,
+                QosLevel::AtMostOnce,
+                false,
+                0,
+            ),
+            AckHeader::new(packet_id),
+        )
+        .pack()
     }
 
-    pub fn make_pubrel(packet_id: u16) -> Result<Vec<u8>, MqttError> {
-        let header = FixedHeader::new(
-            enums::PacketType::Puback,
-            false,
-            QosLevel::AtLeastOnce,
-            false,
-            0,
-        );
-
-        Packet::PubRel(header, AckHeader::new(packet_id)).pack()
+    pub fn make_pubrel(packet_id: u16) -> Result<Bytes, MqttError> {
+        Packet::PubRel(
+            FixedHeader::new(
+                enums::PacketType::Puback,
+                false,
+                QosLevel::AtLeastOnce,
+                false,
+                0,
+            ),
+            AckHeader::new(packet_id),
+        )
+        .pack()
     }
 
-    pub fn make_pubrec(packet_id: u16) -> Result<Vec<u8>, MqttError> {
-        let header = FixedHeader::new(
-            enums::PacketType::Puback,
-            false,
-            QosLevel::AtMostOnce,
-            false,
-            0,
-        );
-
-        Packet::PubRec(header, AckHeader::new(packet_id)).pack()
+    pub fn make_pubrec(packet_id: u16) -> Result<Bytes, MqttError> {
+        Packet::PubRec(
+            FixedHeader::new(
+                enums::PacketType::Puback,
+                false,
+                QosLevel::AtMostOnce,
+                false,
+                0,
+            ),
+            AckHeader::new(packet_id),
+        )
+        .pack()
     }
 
-    pub fn make_puback(pkt_id: u16) -> Result<Vec<u8>, MqttError> {
-        let header = FixedHeader::new(
-            enums::PacketType::Puback,
-            false,
-            QosLevel::AtMostOnce,
-            false,
-            0,
-        );
-
-        Packet::PubAck(header, AckHeader::new(pkt_id)).pack()
+    pub fn make_puback(pkt_id: u16) -> Result<Bytes, MqttError> {
+        Packet::PubAck(
+            FixedHeader::new(
+                enums::PacketType::Puback,
+                false,
+                QosLevel::AtMostOnce,
+                false,
+                0,
+            ),
+            AckHeader::new(pkt_id),
+        )
+        .pack()
     }
 
-    pub fn make_unsuback(pkt_id: u16) -> Result<Vec<u8>, MqttError> {
-        let header = FixedHeader::new(
-            enums::PacketType::Unsuback,
-            false,
-            QosLevel::AtMostOnce,
-            false,
-            0,
-        );
-
-        Packet::UnsubAck(header, AckHeader::new(pkt_id)).pack()
+    pub fn make_unsuback(pkt_id: u16) -> Result<Bytes, MqttError> {
+        Packet::UnsubAck(
+            FixedHeader::new(
+                enums::PacketType::Unsuback,
+                false,
+                QosLevel::AtMostOnce,
+                false,
+                0,
+            ),
+            AckHeader::new(pkt_id),
+        )
+        .pack()
     }
 
-    pub fn make_ping_resp() -> Result<Vec<u8>, MqttError> {
-        let header = FixedHeader::new(
+    pub fn make_ping_resp() -> Result<Bytes, MqttError> {
+        Packet::PingResp(FixedHeader::new(
             enums::PacketType::PingResp,
             false,
             enums::QosLevel::AtMostOnce,
             false,
             0,
-        );
-
-        Packet::PingResp(header).pack()
+        ))
+        .pack()
     }
 
-    pub fn make_suback(
-        packet_id: u16,
-        rc_list: Vec<SubackReturnCode>,
-    ) -> Result<Vec<u8>, MqttError> {
-        let header = FixedHeader::new(
-            enums::PacketType::Suback,
-            false,
-            enums::QosLevel::AtMostOnce,
-            false,
-            0,
-        );
-
-        Packet::SubAck(header, SubackHeader::new(packet_id, rc_list)).pack()
+    pub fn make_suback(packet_id: u16, rc_list: Vec<SubackReturnCode>) -> Result<Bytes, MqttError> {
+        Packet::SubAck(
+            FixedHeader::new(
+                enums::PacketType::Suback,
+                false,
+                enums::QosLevel::AtMostOnce,
+                false,
+                0,
+            ),
+            SubackHeader::new(packet_id, rc_list),
+        )
+        .pack()
     }
 
-    pub fn make_connack(
-        rc: ConnectReturnCode,
-        session_present: bool,
-    ) -> Result<Vec<u8>, MqttError> {
-        let flags = AcknowledgeFlags::new(session_present);
-        let header = FixedHeader::new(
-            enums::PacketType::Connack,
-            false,
-            enums::QosLevel::AtMostOnce,
-            false,
-            0,
-        );
-        let cack_header = ConnackHeader::new(flags, rc);
-        Packet::ConnAck(header, cack_header).pack()
+    pub fn make_connack(rc: ConnectReturnCode, session_present: bool) -> Result<Bytes, MqttError> {
+        Packet::ConnAck(
+            FixedHeader::new(
+                enums::PacketType::Connack,
+                false,
+                enums::QosLevel::AtMostOnce,
+                false,
+                0,
+            ),
+            ConnackHeader::new(AcknowledgeFlags::new(session_present), rc),
+        )
+        .pack()
     }
 
     pub fn unpack(bytes: &[u8]) -> Result<Packet, MqttError> {
@@ -223,100 +228,101 @@ impl Packet {
             _ => Err(MqttError::InvalidPacketType),
         }
     }
-    pub fn pack(&self) -> Result<Vec<u8>, MqttError> {
+    pub fn pack(&self) -> Result<Bytes, MqttError> {
         match self {
             Packet::Connect(header, body) => {
-                let vhp = body.to_bytes()?;
-                let len = Packet::encode_length(vhp.len());
+                let mut bytes = BytesMut::new();
 
-                let mut packet = [len, vhp].concat();
-                packet.insert(0, header.as_byte());
-                Ok(packet)
+                header.as_byte(&mut bytes);
+
+                let vhp = body.to_bytes()?;
+
+                encode_length(vhp.len(), &mut bytes);
+                bytes.put(vhp);
+
+                Ok(bytes.freeze())
             }
             Packet::ConnAck(header, body) => {
-                let vhp = body.to_bytes()?;
-                let len = Packet::encode_length(vhp.len());
+                let mut bytes = BytesMut::new();
 
-                let mut packet = [len, vhp].concat();
-                packet.insert(0, header.as_byte());
-                Ok(packet)
+                header.as_byte(&mut bytes);
+
+                let vhp = body.to_bytes()?;
+                encode_length(vhp.len(), &mut bytes);
+                bytes.put(vhp);
+
+                Ok(bytes.freeze())
             }
             Packet::Subscribe(header, body) => {
-                let vhp = body.to_bytes()?;
-                let len = Packet::encode_length(vhp.len());
+                let mut packet = BytesMut::new();
 
-                let mut packet = [len, vhp].concat();
-                packet.insert(0, header.as_byte());
-                Ok(packet)
+                header.as_byte(&mut packet);
+
+                let vhp = body.to_bytes()?;
+                encode_length(vhp.len(), &mut packet);
+
+                packet.put(vhp);
+
+                Ok(packet.freeze())
             }
             Packet::Unsubscribe(header, body) => {
-                let vhp = body.to_bytes()?;
-                let len = Packet::encode_length(vhp.len());
+                let mut packet = BytesMut::new();
+                header.as_byte(&mut packet);
 
-                let mut packet = [len, vhp].concat();
-                packet.insert(0, header.as_byte());
-                Ok(packet)
+                let vhp = body.to_bytes()?;
+                encode_length(vhp.len(), &mut packet);
+
+                packet.put(vhp);
+                Ok(packet.freeze())
             }
             Packet::SubAck(header, body) => {
-                let vhp = body.to_bytes()?;
-                let len = Packet::encode_length(vhp.len());
+                let mut packet = BytesMut::new();
 
-                let mut packet = [len, vhp].concat();
-                packet.insert(0, header.as_byte());
-                Ok(packet)
+                header.as_byte(&mut packet);
+
+                let vhp = body.to_bytes()?;
+                encode_length(vhp.len(), &mut packet);
+
+                packet.put(vhp);
+
+                Ok(packet.freeze())
             }
             Packet::Publish(header, body) => {
+                let mut packet = BytesMut::new();
+
+                header.as_byte(&mut packet);
+
                 let vhp = body.to_bytes()?;
-                let len = Packet::encode_length(vhp.len());
+                encode_length(vhp.len(), &mut packet);
 
-                let mut packet = [len, vhp].concat();
-                packet.insert(0, header.as_byte());
-                Ok(packet)
+                packet.put(vhp);
+
+                Ok(packet.freeze())
             }
-
             Packet::UnsubAck(header, body)
             | Packet::PubComp(header, body)
             | Packet::PubRel(header, body)
             | Packet::PubAck(header, body)
             | Packet::PubRec(header, body) => {
-                let vh_p = body.to_bytes()?;
+                let mut packet = BytesMut::new();
 
-                let len = Packet::encode_length(vh_p.len());
+                header.as_byte(&mut packet);
 
-                let mut packet = [len, vh_p].concat();
-                packet.insert(0, header.as_byte());
+                let vhp = body.to_bytes()?;
 
-                Ok(packet)
+                encode_length(vhp.len(), &mut packet);
+
+                packet.put(vhp);
+
+                Ok(packet.freeze())
             }
-
             Packet::Disconnect(header) | Packet::PingResp(header) | Packet::PingReq(header) => {
-                Ok(vec![header.as_byte(), 0x00])
+                let mut packet = BytesMut::new();
+                header.as_byte(&mut packet);
+                packet.put_u8(0x00);
+                Ok(packet.freeze())
             }
         }
-    }
-    fn encode_length(len: usize) -> Vec<u8> {
-        let mut bytes: Vec<u8> = Vec::with_capacity(4);
-        let mut mlen = len;
-        loop {
-            if bytes.len() + 1 > MAX_LEN_BYTES {
-                return bytes;
-            }
-
-            let mut d = mlen % 128;
-            mlen /= 128;
-
-            if mlen > 0 {
-                d |= 128;
-            }
-
-            bytes.push(d as u8);
-
-            if !(mlen > 0) {
-                break;
-            }
-        }
-
-        bytes
     }
 }
 
@@ -340,7 +346,7 @@ mod tests {
     // https://cedalo.com/blog/mqtt-packet-guide/
     #[test]
     fn test_unpack_connect_packet() {
-        let data: [u8; 32] = [
+        let mut data = vec![
             0x10, // Fixed Header
             0x1e, // Length
             0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, // MQTT
@@ -353,7 +359,7 @@ mod tests {
             0x00, 0x04, 0x70, 0x61, 0x73, 0x73, // Password with length (4,"pass")
         ];
 
-        let packet = Packet::unpack(&data).expect("Failed to parse connect packet");
+        let packet = Packet::unpack(&mut data).expect("Failed to parse connect packet");
 
         if let Packet::Connect(header, body) = packet {
             assert_eq!(header.get_remaing_len(), 30);
@@ -386,7 +392,7 @@ mod tests {
 
     #[test]
     fn test_unpack_publish_packet() {
-        let data: [u8; 16] = [
+        let data = vec![
             0x33, // Fixed Header QOS 1, Retain 1
             0x0E, // Length 14
             0x00, 0x04, 0x69, 0x6e, 0x66, 0x6f, // topic "info"
@@ -422,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_unpack_subscribe_packet() {
-        let data: [u8; 14] = [
+        let data = vec![
             0x82, // Header
             0x0C, // Len
             0x00, 0x01, // pkt id
@@ -448,7 +454,7 @@ mod tests {
 
     #[test]
     fn test_unpack_unsubscribe_packet() {
-        let data: [u8; 10] = [
+        let data = vec![
             0xA2, // Fixed Header
             0x08, // length
             0x00, 0x01, // pkt_id = 1
@@ -598,26 +604,5 @@ mod tests {
         ];
 
         assert_eq!(data.to_vec(), packet);
-    }
-
-    #[test]
-    fn test_encode_single_byte() {
-        let len: usize = 0x1e;
-
-        let result = Packet::encode_length(len);
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], 30);
-    }
-
-    #[test]
-    fn test_encode_two_bytes() {
-        let len: usize = 321;
-
-        let result = Packet::encode_length(len);
-
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], 193);
-        assert_eq!(result[1], 2);
     }
 }
