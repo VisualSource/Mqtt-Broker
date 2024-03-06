@@ -1,11 +1,10 @@
-use arcstr::ArcStr;
 use bytes::Bytes;
 
 /// Enum for handling messages sent to the message listener
 #[derive(Debug)]
 pub enum Command {
-    Publish(ArcStr, Bytes),
-    DisconnectClient(ArcStr),
+    Publish(String, Bytes),
+    DisconnectClient(String),
     Exit,
 }
 

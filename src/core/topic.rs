@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use tokio::sync::mpsc::Sender;
 
-use crate::{packets::enums::QosLevel, server::Event};
+use crate::packets::enums::QosLevel;
 
-use super::pattern::Pattern;
+use super::{enums::ClientEvent, pattern::Pattern};
 
-type Subscriber = (Sender<Event>, QosLevel);
+type Subscriber = (Sender<ClientEvent>, QosLevel);
 type Subscribers = HashMap<String, Subscriber>;
 
 // # Wildcard
@@ -55,7 +55,7 @@ impl Topics {
         topic_name: String,
         qos: QosLevel,
         cid: &String,
-        tx: Sender<Event>,
+        tx: Sender<ClientEvent>,
     ) -> Result<(), u8> {
         if self.0.contains_key(&topic_name) {
             let topic = self.0.get_mut(&topic_name).ok_or(0)?;

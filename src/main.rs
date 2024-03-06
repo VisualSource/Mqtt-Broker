@@ -1,11 +1,15 @@
 use core::{enums::Command, App};
 use error::MqttError;
 use handler::client_handler;
+use std::{sync::Arc, time::Duration};
 use tokio::{
     net::TcpListener,
     select,
     sync::{mpsc::channel, RwLock},
 };
+use tokio_util::sync::CancellationToken;
+
+use crate::{core::enums::ClientEvent, packets::Packet};
 
 mod config;
 mod core;
@@ -43,9 +47,12 @@ async fn main() {
 
 async fn listen(addr: &str) -> Result<(), MqttError> {
     let listener = TcpListener::bind(addr).await.map_err(MqttError::Io)?;
+
+    let state = Arc::new(App::new());
+    let token = CancellationToken::new();
     let (tx, mut rx) = channel::<Command>(100);
 
-    /*tokio::spawn(async {
+    tokio::spawn(async {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         loop {
             interval.tick().await;
@@ -54,51 +61,50 @@ async fn listen(addr: &str) -> Result<(), MqttError> {
         }
     });
 
+    let ctx_m = state.clone();
     tokio::spawn(async move {
         while let Some(i) = rx.recv().await {
             match i {
-                Request::Publish(topic, payload) => {
-                    let read = APP.read().await;
-                    let subs = read.topics.get_matches(&topic);
-
-                    for sub in subs {
-                        if let Ok(packet) = Packet::make_publish(
-                            false,
-                            sub.1,
-                            false,
-                            topic.clone(),
-                            None,
-                            payload.clone(),
-                        ) {
-                            if let Err(e) = sub.0.send(Event::Message(packet)).await {
-                                eprintln!("{}", e);
+                Command::Publish(topic, payload) => {
+                    /*if let Ok(topics) = ctx_m.topics.read() {
+                        let subs = topics.get_matches(&topic);
+                        for sub in subs {
+                            if let Ok(packet) = Packet::make_publish(
+                                false,
+                                sub.1,
+                                false,
+                                topic.clone(),
+                                None,
+                                payload.clone(),
+                            ) {
+                                if let Err(e) = sub.0.send(ClientEvent::Message(packet)).await {
+                                    log::error!("{}", e);
+                                }
                             }
-                            MESSAGES_PUBLISH_SENT
-                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
-                    }
+                    }*/
                 }
-                Request::DisconnectClient(cid) => {
-                    if let Some(client) = APP.read().await.clients.get(&cid) {
-                        if let Err(e) = client.sender.send(Event::Disconnect).await {
-                            eprintln!("{}", e);
-                        }
-                    }
+                Command::DisconnectClient(cid) => {
+                    /*if let Err(err) = ctx_m.disconnect_client(&cid).await {
+                        log::error!("{}", err);
+                    }*/
                 }
 
-                Request::Exit => break,
+                Command::Exit => break,
             }
         }
-    });*/
+    });
 
     select! {
         _ = async {
             loop {
                 match listener.accept().await {
                     Ok((stream, _)) => {
-                        let send = tx.clone();
+                        let message_brige = tx.clone();
+                        let cancellation = token.clone();
+                        let context = state.clone();
                         tokio::spawn(async move {
-                            if let Err(err) = client_handler(stream, send).await {
+                            if let Err(err) = client_handler(stream,message_brige,cancellation, context).await {
                                log::error!("{}", err);
                             }
                         });
@@ -108,15 +114,14 @@ async fn listen(addr: &str) -> Result<(), MqttError> {
                     }
                 }
             }
-
-        } => {
-            Ok(())
-        }
+        } => {}
         _ = tokio::signal::ctrl_c() => {
             log::info!("Exit");
-            Ok(())
+            token.cancel();
         }
     }
+
+    Ok(())
 }
 /*
 async fn stream_handler(stream: TcpStream, tx: Sender<Request>) -> Result<(), MqttError> {

@@ -1,16 +1,14 @@
 use tokio::sync::mpsc::Sender;
 
-use crate::server::Event;
-
-use super::session::Session;
+use super::{enums::ClientEvent, session::Session};
 
 pub struct Client {
     pub session: Session,
-    pub sender: Sender<Event>,
+    pub sender: Sender<ClientEvent>,
 }
 
 impl Client {
-    pub fn new(sender: Sender<Event>) -> Self {
+    pub fn new(sender: Sender<ClientEvent>) -> Self {
         Self {
             session: Session::new(),
             sender,

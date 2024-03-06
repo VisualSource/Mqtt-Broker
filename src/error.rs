@@ -1,8 +1,9 @@
 use std::string::FromUtf8Error;
 
 use thiserror::Error;
+use tokio::task::JoinError;
 
-use crate::server::Request;
+use crate::core::enums::Command;
 
 #[derive(Debug, Error)]
 pub enum MqttError {
@@ -18,7 +19,7 @@ pub enum MqttError {
     MalformedU32,
 
     #[error("Failed to send message: {0}")]
-    ChannelError(#[from] tokio::sync::mpsc::error::SendError<Request>),
+    ChannelError(#[from] tokio::sync::mpsc::error::SendError<Command>),
 
     #[error("Failed to convert to `{0}` to `{1}`.")]
     Convertion(String, String),
@@ -50,4 +51,9 @@ pub enum MqttError {
 
     #[error("PoisonError")]
     QueuePoisonError,
+
+    #[error("Failed to join task")]
+    TaskJoinError(#[from] JoinError),
+    #[error("RwLock error")]
+    RwLockError,
 }
