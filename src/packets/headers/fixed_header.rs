@@ -187,7 +187,7 @@ impl FromBytes for FixedHeader {
     {
         let mut header = FixedHeader::from(*iter.next().ok_or_else(|| MqttError::MissingByte)?);
 
-        let len = decode_length(iter)?;
+        let len = decode_length(iter)?.0;
         header.set_remain_len(len);
 
         Ok(header)

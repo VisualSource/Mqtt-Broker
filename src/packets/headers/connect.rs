@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::{
@@ -5,7 +7,9 @@ use crate::{
     packets::{
         enums::QosLevel,
         traits::{FromBytes, ToBytes},
-        utils::{unpack_string, unpack_u16},
+        utils::{
+            decode_length, unpack_bytes, unpack_properties, unpack_string, unpack_u16, unpack_u32,
+        },
     },
 };
 
@@ -123,7 +127,21 @@ pub struct ConnectHeader {
     pub will_topic: String,
     pub will_message: String,
     pub protocal_version: u8,
+
+    session_expiry_interval: Option<u32>,
+    receive_maximum: u16,
+    maximum_packet_size: Option<u32>,
+    topic_alias_maximum: u16,
+    request_response_info: bool,
+    request_problem_info: bool,
+    user_properties: Vec<(String, String)>,
+    auth_method: Option<String>,
+    auth_data: Option<Bytes>,
 }
+// receive_maximum 65,535
+// topic_alias_maximum 0
+// request_response_info false
+// request_problem_info true
 
 impl ConnectHeader {
     pub fn new(
@@ -144,6 +162,15 @@ impl ConnectHeader {
             password: password.unwrap_or_default(),
             will_topic: will_topic.unwrap_or_default(),
             will_message: will_message.unwrap_or_default(),
+            session_expiry_interval: None,
+            receive_maximum: 65535,
+            maximum_packet_size: None,
+            topic_alias_maximum: 0,
+            request_response_info: false,
+            request_problem_info: true,
+            user_properties: Vec::new(),
+            auth_method: None,
+            auth_data: None,
         }
     }
 }
@@ -178,18 +205,7 @@ impl FromBytes for ConnectHeader {
         connect_header.keepalive = unpack_u16(iter)?;
 
         if connect_header.protocal_version == 5 {
-            // Connect Properties
-            // Property length
-
-            // Session Expiry Interval
-            // Receive Maximum
-            // Maximum Packet Size
-            // Topic Alias Maximum
-            // Request Response Information
-            // Request Problem Information
-            // User Property
-            // Authentication Method
-            // Authentication Data
+            let props = unpack_properties(iter)?;
         }
 
         connect_header.client_id = unpack_string(iter)?;
