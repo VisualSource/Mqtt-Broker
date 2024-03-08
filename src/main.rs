@@ -10,6 +10,7 @@ mod packets;
 // Version 5 https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901021
 // Version 3.1.1 + Errata http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html
 
+// https://hivemq.github.io/mqtt-cli/docs/installation/
 // C impl example
 // https://codepr.github.io/posts/sol-mqtt-broker/
 
@@ -26,7 +27,7 @@ async fn main() {
 
     let config = ConfigBuilder::new()
         .set_port(1883)
-        .set_sys_interval(10)
+        .set_sys_interval(0)
         .build()
         .expect("Failed to start: Invalid config");
 

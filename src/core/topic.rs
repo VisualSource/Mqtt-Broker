@@ -9,6 +9,7 @@ use super::{enums::ClientEvent, pattern::Pattern};
 pub type Subscriber = (Sender<ClientEvent>, QosLevel);
 type Subscribers = HashMap<String, Subscriber>;
 
+// https://stackoverflow.com/questions/45271346/trie-implementation-with-wildcard-values
 // # Wildcard
 // + single level wildcard
 // / seperator

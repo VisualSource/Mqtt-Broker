@@ -1,4 +1,5 @@
 use bytes::{BufMut, Bytes, BytesMut};
+use log::debug;
 
 use crate::error::MqttError;
 
@@ -176,6 +177,8 @@ impl Packet {
 
         let packet_type = header.get_packet_type()?;
 
+        debug!("Unpack: packet type {:#?}", packet_type);
+
         match packet_type {
             enums::PacketType::Connect => Ok(Self::Connect(
                 header,
@@ -225,7 +228,7 @@ impl Packet {
             enums::PacketType::PingReq => Ok(Self::PingReq(header)),
             enums::PacketType::PingResp => Ok(Self::PingResp(header)),
             enums::PacketType::Disconnect => Ok(Self::Disconnect(header)),
-            _ => Err(MqttError::InvalidPacketType),
+            _ => Err(MqttError::ReservedPacketType),
         }
     }
     pub fn pack(&self) -> Result<Bytes, MqttError> {

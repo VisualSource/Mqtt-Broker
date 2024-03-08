@@ -1,9 +1,20 @@
 use bytes::{BufMut, Bytes, BytesMut};
+use log::error;
 
 use crate::error::MqttError;
-use std::{collections::HashSet, mem::size_of};
+use std::mem::size_of;
 const MAX_ENCODED_SIZE: usize = 128 * 128 * 128;
 const MAX_ENCODED_BYTES: usize = 4;
+
+fn format_unpack_u16_error(e: Vec<u8>) -> MqttError {
+    error!(
+        "Failed to unpack u16: length is too short recived: {} expected {}",
+        e.len(),
+        size_of::<u16>()
+    );
+    MqttError::RequiredByteMissing
+}
+
 /// Unpack a bytes into a u16
 ///
 /// Integer data values are 16 bits in big-endian order: the high order byte precedes the lower order byte.
@@ -14,10 +25,10 @@ where
 {
     let bytes: [u8; size_of::<u16>()] = iter
         .take(size_of::<u16>())
-        .map(|e| *e)
+        .copied()
         .collect::<Vec<u8>>()
         .try_into()
-        .map_err(|_| MqttError::MissingByte)?;
+        .map_err(format_unpack_u16_error)?;
 
     Ok(u16::from_be_bytes(bytes))
 }
@@ -39,8 +50,16 @@ where
     Ok(u32::from_be_bytes(bytes))
 }
 
-/// Unpack a UTF-8 string with u16 header.
-/// Unless stated otherwise all UTF-8 encoded strings can have any length in the range 0 to 65535 bytes.
+/// ### UTF-8 Encoded String
+/// Text fields within the MQTT Control Packets described later are encoded as UTF-8 strings.
+/// UTF-8 [RFC3629](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#RFC3629) is an efficient encoding of Unicode [Unicode](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#Unicode) characters that optimizes the encoding of ASCII characters in support of text-based communications.
+///
+/// Each of these strings is prefixed with a Two Byte Integer length field that gives the number of bytes in a UTF-8 encoded string itself,
+/// as illustrated in **Figure 1.1 Structure of UTF-8 Encoded Strings below**. Consequently, the maximum size of a UTF-8 Encoded String is 65,535 bytes.
+///
+/// Unless stated otherwise all UTF-8 encoded strings can have any length in the range 0 to 65,535 bytes.
+///
+/// Figure 1-1 Structure of UTF-8 Encoded Strings
 ///
 /// | Bit    | 7  6  5  4  3  2  1 |
 /// | ------ | :-  -  -  -  -  -  -:     |
@@ -48,7 +67,8 @@ where
 /// | byte 2 | String length LSB         |
 /// | byte 3 | UTF-8 encoded Character data |
 ///
-/// [(MQTT 3.1.1) UTF-8 encoded strings](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html#_Toc442180829)
+/// [(MQTT 3.1.1) 1.5.3 UTF-8 encoded strings](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html#_Toc442180829)<br/>
+/// [(MQTT 5) 1.5.4 UTF-8 Encoded String](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901010)
 pub fn unpack_string<'a, I>(iter: &mut I) -> Result<String, MqttError>
 where
     I: Iterator<Item = &'a u8>,
@@ -74,13 +94,9 @@ where
         return Ok(String::default());
     }
 
-    let chars: Vec<_> = iter.take(len).map(|e| e.to_owned()).collect();
+    let chars: Vec<u8> = iter.take(len).copied().collect();
 
-    if chars.len() != len || len > 65535 {
-        return Err(MqttError::InvalidLength);
-    }
-
-    let result = String::from_utf8(chars).map_err(MqttError::Utf8Error)?;
+    let result = String::from_utf8(chars).map_err(MqttError::MalformedString)?;
 
     Ok(result)
 }
@@ -133,6 +149,19 @@ pub fn encode_length(len: usize, bytes: &mut BytesMut) {
             break;
         }
     }
+}
+
+/// ### UTF-8 String Pair
+/// A UTF-8 String Pair consists of two UTF-8 Encoded Strings. This data type is used to hold name-value pairs. The first string serves as the name, and the second string contains the value.
+/// ***Both strings MUST comply with the requirements for UTF-8 Encoded Strings*** [MQTT-1.5.7-1]. If a receiver (Client or Server) receives a string pair which does not meet these requirements it is a Malformed Packet. Refer to section 4.13 for information about handling errors.
+pub fn unpack_string_pair<'a, I>(iter: &mut I) -> Result<(String, String), MqttError>
+where
+    I: Iterator<Item = &'a u8>,
+{
+    let key = unpack_string(iter)?;
+    let value = unpack_string(iter)?;
+
+    Ok((key, value))
 }
 
 #[derive(Debug, Default)]

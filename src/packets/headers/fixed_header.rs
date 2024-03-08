@@ -185,7 +185,8 @@ impl FromBytes for FixedHeader {
     where
         I: Iterator<Item = &'a u8>,
     {
-        let mut header = FixedHeader::from(*iter.next().ok_or_else(|| MqttError::MissingByte)?);
+        let mut header =
+            FixedHeader::from(*iter.next().ok_or_else(|| MqttError::RequiredByteMissing)?);
 
         let len = decode_length(iter)?.0;
         header.set_remain_len(len);

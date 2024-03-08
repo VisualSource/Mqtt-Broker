@@ -3,8 +3,9 @@ use crate::core::{broker_info, enums::Command, App};
 use crate::error::MqttError;
 use crate::handler::client_handler;
 use bytes::Bytes;
-use log::debug;
+use log::{debug, info};
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tokio::{net::TcpListener, select, sync::mpsc::channel};
 use tokio_util::sync::CancellationToken;
 
@@ -17,6 +18,7 @@ use crate::{
 };
 
 pub async fn listen(config: Config) -> Result<(), MqttError> {
+    info!("Starting MQTT Broker at: {}", config.socket_addr);
     let listener = TcpListener::bind(config.socket_addr)
         .await
         .map_err(MqttError::Io)?;
@@ -217,6 +219,7 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                             if let Err(err) = client_handler(stream,message_brige,cancellation).await {
                                log::error!("{}", err);
                             }
+                            log::debug!("Exit handler");
                         });
                     }
                     Err(err) => {
@@ -227,6 +230,7 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
         } => {}
         _ = tokio::signal::ctrl_c() => {
             log::info!("Exiting");
+            drop(listener);
             if tx.send(Command::Exit).await.is_err(){
                 log::error!("Failed to exit message loop");
             }

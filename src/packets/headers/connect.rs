@@ -45,6 +45,11 @@ impl Flags {
     pub fn as_byte(&self) -> u8 {
         self.0
     }
+
+    pub fn validate_flags(&self) -> bool {
+        self.0 & 0x1 == 1
+    }
+
     /// #### Clean Start or Clean Session
     /// This bit specifies whether the Connection starts a new Session or is a continuation of an existing Session.
     pub fn clean_session(&self) -> bool {
@@ -190,18 +195,25 @@ impl FromBytes for ConnectHeader {
         let protocal_name = unpack_string(iter)?;
 
         if &protocal_name != "MQTT" {
-            return Err(MqttError::UnsupportedProtocolVersion);
+            return Err(MqttError::UnknownProtocol);
         }
 
-        connect_header.protocal_version = *iter.next().ok_or_else(|| MqttError::MissingByte)?;
+        connect_header.protocal_version =
+            *iter.next().ok_or_else(|| MqttError::RequiredByteMissing)?;
 
         if connect_header.protocal_version != 4
         /*|| connect_header.protocal_version != 5*/
         {
-            return Err(MqttError::UnsupportedProtocolVersion);
+            return Err(MqttError::UnacceptableProtocolLevel);
         }
 
-        connect_header.flags = Flags::from(iter.next().ok_or_else(|| MqttError::MissingByte)?);
+        connect_header.flags =
+            Flags::from(iter.next().ok_or_else(|| MqttError::RequiredByteMissing)?);
+
+        if connect_header.flags.validate_flags() {
+            return Err(MqttError::MalformedHeader);
+        }
+
         connect_header.keepalive = unpack_u16(iter)?;
 
         if connect_header.protocal_version == 5 {

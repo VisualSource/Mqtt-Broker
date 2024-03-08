@@ -41,13 +41,18 @@ impl FromBytes for SubscribeHeader {
     {
         let h = header.ok_or_else(|| MqttError::MissingFixedHeader)?;
 
+        if !h.get_dup() && h.get_qos()? != QosLevel::AtMostOnce && !h.get_retain() {
+            return Err(MqttError::MalformedHeader);
+        }
         let mut len = h.get_remaing_len();
-
         let mut sub = SubscribeHeader::builder();
+
+        // # Variable header
 
         sub.packet_id = unpack_u16(iter)?;
         len -= size_of::<u16>();
 
+        // # Payload
         /*
          * Read in a loop all remaining bytes specified by len of the Fixed Header.
          * From now on the payload consists of 3-tuples formed by:
@@ -56,16 +61,18 @@ impl FromBytes for SubscribeHeader {
          */
 
         while len > 0 {
-            len -= size_of::<u16>();
-
             let topic = unpack_string(iter)?;
-            len -= topic.len();
+            len -= topic.len() + size_of::<u16>();
 
             let qos = QosLevel::try_from(*iter.next().ok_or_else(|| MqttError::MissingByte)?)?;
 
             len -= size_of::<u8>();
 
             sub.tuples.push((topic, qos));
+        }
+
+        if sub.tuples.is_empty() {
+            return Err(MqttError::ProtocolViolation);
         }
 
         Ok(sub)
