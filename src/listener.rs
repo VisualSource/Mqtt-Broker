@@ -1,11 +1,10 @@
 use crate::config::Config;
 use crate::core::{broker_info, enums::Command, App};
 use crate::error::MqttError;
-use crate::handler::client_handler;
+use crate::handlers::client_handler;
 use bytes::Bytes;
 use log::{debug, info};
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
 use tokio::{net::TcpListener, select, sync::mpsc::channel};
 use tokio_util::sync::CancellationToken;
 
@@ -23,10 +22,12 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
         .await
         .map_err(MqttError::Io)?;
 
+    let tracker = tokio_util::task::TaskTracker::new();
+
     let token = CancellationToken::new();
     let (tx, mut rx) = channel::<Command>(100);
 
-    tokio::spawn(async move {
+    tracker.spawn(async move {
         let mut context = App::new();
         while let Some(command) = rx.recv().await {
             match command {
@@ -137,13 +138,13 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
             }
         }
 
-        debug!("Exiting message loop")
+        debug!("Exiting Command loop");
     });
 
     if config.sys_interval != 0 {
         let birge = tx.clone();
         let ctoken = token.clone();
-        tokio::spawn(async move {
+        tracker.spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(config.sys_interval));
             loop {
                 select! {
@@ -213,13 +214,13 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
             loop {
                 match listener.accept().await {
                     Ok((stream, _)) => {
-                        let message_brige = tx.clone();
                         let cancellation = token.clone();
-                        tokio::spawn(async move {
+                        let message_brige = tx.clone();
+                        tracker.spawn(async move {
                             if let Err(err) = client_handler(stream,message_brige,cancellation).await {
                                log::error!("{}", err);
                             }
-                            log::debug!("Exit handler");
+                            log::debug!("Exited TCP handler");
                         });
                     }
                     Err(err) => {
@@ -230,11 +231,13 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
         } => {}
         _ = tokio::signal::ctrl_c() => {
             log::info!("Exiting");
-            drop(listener);
             if tx.send(Command::Exit).await.is_err(){
                 log::error!("Failed to exit message loop");
             }
             token.cancel();
+            tracker.close();
+
+            tracker.wait().await;
         }
     }
 

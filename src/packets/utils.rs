@@ -12,7 +12,7 @@ fn format_unpack_u16_error(e: Vec<u8>) -> MqttError {
         e.len(),
         size_of::<u16>()
     );
-    MqttError::RequiredByteMissing
+    MqttError::RequiredByteMissing("Missing u16 byte(s)")
 }
 
 /// Unpack a bytes into a u16
@@ -109,14 +109,16 @@ where
     let mut value = 0;
     let mut len = 0;
     loop {
-        let byte = iter.next().ok_or_else(|| MqttError::MissingByte)?;
+        let byte = iter
+            .next()
+            .ok_or_else(|| MqttError::RequiredByteMissing("Missing variable length byte"))?;
 
         len += 1;
 
         value += ((byte & 127) as usize) * multiplier;
 
         if multiplier > MAX_ENCODED_SIZE {
-            return Err(MqttError::MalformedRemaingLength);
+            return Err(MqttError::MalformedHeader);
         }
 
         multiplier *= 128;

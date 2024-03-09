@@ -3,7 +3,7 @@ use config::ConfigBuilder;
 mod config;
 mod core;
 mod error;
-mod handler;
+mod handlers;
 mod listener;
 mod packets;
 
@@ -15,6 +15,7 @@ mod packets;
 // https://codepr.github.io/posts/sol-mqtt-broker/
 
 // Code
+// https://blog.graysonhead.net/posts/rust-tcp/
 // https://patshaughnessy.net/2018/3/15/how-rust-implements-tagged-unions
 // https://locka99.gitbooks.io/a-guide-to-porting-c-to-rust/content/features_of_rust/types.html
 // https://towardsdev.com/bitwise-operation-and-tricks-in-rust-5aea318c99b7

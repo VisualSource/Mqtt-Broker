@@ -14,8 +14,8 @@ pub enum MqttError {
     #[error("Packet type is reserved")]
     ReservedPacketType,
 
-    #[error("Packet is missing a required byte")]
-    RequiredByteMissing,
+    #[error("Packet is missing a required byte: {0}")]
+    RequiredByteMissing(&'static str),
 
     #[error("Io Error: {0}")]
     Io(#[from] std::io::Error),
@@ -29,7 +29,7 @@ pub enum MqttError {
     #[error("Unknown protocal name")]
     UnknownProtocol,
 
-    #[error("Failed to parse header")]
+    #[error("MalformedHeader")]
     MalformedHeader,
 
     #[error("Failed to send message: {0}")]

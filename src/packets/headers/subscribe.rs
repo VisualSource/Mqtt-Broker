@@ -1,6 +1,7 @@
 use std::mem::size_of;
 
 use bytes::{BufMut, Bytes, BytesMut};
+use log::debug;
 
 use crate::{
     error::MqttError,
@@ -41,16 +42,19 @@ impl FromBytes for SubscribeHeader {
     {
         let h = header.ok_or_else(|| MqttError::MissingFixedHeader)?;
 
-        if !h.get_dup() && h.get_qos()? != QosLevel::AtMostOnce && !h.get_retain() {
+        if !h.get_dup() && h.get_qos()? != QosLevel::AtLeastOnce && h.get_retain() {
             return Err(MqttError::MalformedHeader);
         }
         let mut len = h.get_remaing_len();
         let mut sub = SubscribeHeader::builder();
 
+        debug!("Remaing len (Subscribe) {}", len);
         // # Variable header
 
         sub.packet_id = unpack_u16(iter)?;
         len -= size_of::<u16>();
+
+        debug!("Remaing len (Subscribe) {}", len);
 
         // # Payload
         /*
@@ -64,9 +68,13 @@ impl FromBytes for SubscribeHeader {
             let topic = unpack_string(iter)?;
             len -= topic.len() + size_of::<u16>();
 
-            let qos = QosLevel::try_from(*iter.next().ok_or_else(|| MqttError::MissingByte)?)?;
+            debug!("(Subscribe) len: {} Topic: {}", len, topic);
+
+            let qos = QosLevel::try_from(*iter.next().ok_or_else(|| MqttError::MalformedHeader)?)?;
 
             len -= size_of::<u8>();
+
+            debug!("(Subscribe) len: {} QOS: {}", len, qos);
 
             sub.tuples.push((topic, qos));
         }

@@ -198,8 +198,9 @@ impl FromBytes for ConnectHeader {
             return Err(MqttError::UnknownProtocol);
         }
 
-        connect_header.protocal_version =
-            *iter.next().ok_or_else(|| MqttError::RequiredByteMissing)?;
+        connect_header.protocal_version = *iter
+            .next()
+            .ok_or_else(|| MqttError::RequiredByteMissing("Missing protocal byte"))?;
 
         if connect_header.protocal_version != 4
         /*|| connect_header.protocal_version != 5*/
@@ -207,8 +208,10 @@ impl FromBytes for ConnectHeader {
             return Err(MqttError::UnacceptableProtocolLevel);
         }
 
-        connect_header.flags =
-            Flags::from(iter.next().ok_or_else(|| MqttError::RequiredByteMissing)?);
+        connect_header.flags = Flags::from(
+            iter.next()
+                .ok_or_else(|| MqttError::RequiredByteMissing("Missing connect flags"))?,
+        );
 
         if connect_header.flags.validate_flags() {
             return Err(MqttError::MalformedHeader);
