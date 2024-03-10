@@ -48,13 +48,10 @@ impl FromBytes for SubscribeHeader {
         let mut len = h.get_remaing_len();
         let mut sub = SubscribeHeader::builder();
 
-        debug!("Remaing len (Subscribe) {}", len);
         // # Variable header
 
         sub.packet_id = unpack_u16(iter)?;
         len -= size_of::<u16>();
-
-        debug!("Remaing len (Subscribe) {}", len);
 
         // # Payload
         /*
@@ -68,13 +65,9 @@ impl FromBytes for SubscribeHeader {
             let topic = unpack_string(iter)?;
             len -= topic.len() + size_of::<u16>();
 
-            debug!("(Subscribe) len: {} Topic: {}", len, topic);
-
             let qos = QosLevel::try_from(*iter.next().ok_or_else(|| MqttError::MalformedHeader)?)?;
 
             len -= size_of::<u8>();
-
-            debug!("(Subscribe) len: {} QOS: {}", len, qos);
 
             sub.tuples.push((topic, qos));
         }

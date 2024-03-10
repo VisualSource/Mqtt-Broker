@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+static TASKS_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// The total number of bytes received since the broker started.
 static BYTES_RECEIVED: AtomicUsize = AtomicUsize::new(0);
 /// The total number of bytes sent since the broker started.
@@ -53,4 +54,8 @@ pub fn client_inc() {
 /// Descress connected clients count
 pub fn client_dec() {
     CLIENTS_CONNECTED.fetch_sub(1, Ordering::Relaxed);
+}
+
+pub fn get_task_id() -> usize {
+    TASKS_COUNT.fetch_add(1, Ordering::Relaxed)
 }

@@ -71,6 +71,16 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                     let mut codes = Vec::<SubackReturnCode>::new();
                     for (topic, qos) in topics {
                         debug!("Client {} Subscribe to {} with {}", cid, topic, qos);
+
+                        // 4.7.2  Topics beginning with $
+                        // The Server SHOULD prevent Clients from using such Topic Names to exchange messages with other Clients.
+                        // Server implementations MAY use Topic Names that start with a leading $ character for other purposes.
+                        if topic.starts_with('$') && !topic.starts_with("$SYS/") {
+                            codes.push(SubackReturnCode::Failure);
+                            debug!("Cant not start a topic with $");
+                            continue;
+                        }
+
                         let result = context.add_subscriber_to_topic(
                             topic,
                             &cid,
@@ -78,18 +88,18 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                             client_message_brige.clone(),
                         );
 
-                        if result.is_ok() {
-                            let code = match qos {
-                                QosLevel::AtMostOnce => SubackReturnCode::SuccessQosZero,
-                                QosLevel::AtLeastOnce => SubackReturnCode::SuccessQosOne,
-                                QosLevel::ExactlyOnce => SubackReturnCode::SuccessQosTwo,
-                            };
-
-                            codes.push(code);
+                        if result.is_err() {
+                            codes.push(SubackReturnCode::Failure);
                             continue;
                         }
 
-                        codes.push(SubackReturnCode::Failure);
+                        let code = match qos {
+                            QosLevel::AtMostOnce => SubackReturnCode::SuccessQosZero,
+                            QosLevel::AtLeastOnce => SubackReturnCode::SuccessQosOne,
+                            QosLevel::ExactlyOnce => SubackReturnCode::SuccessQosTwo,
+                        };
+
+                        codes.push(code);
                     }
 
                     if callback.send(Ok(codes)).is_err() {
@@ -132,7 +142,7 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                 }
                 Command::DisconnectClient(cid) => {
                     debug!("Drop client: {}", cid);
-                    context.remove_client(&cid)
+                    context.remove_client(&cid);
                 }
                 Command::Exit => break,
             }

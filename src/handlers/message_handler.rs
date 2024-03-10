@@ -14,7 +14,9 @@ pub async fn message_handler(
     token: CancellationToken,
     queue: Arc<FifoQueue<Bytes>>,
     mut rx: Receiver<ClientEvent>,
+    task_id: usize,
 ) -> Result<(), MqttError> {
+    debug!("(Task {}) Client: Start message handler", task_id);
     loop {
         select! {
             () = token.cancelled() => break,
@@ -30,13 +32,12 @@ pub async fn message_handler(
                     }
                 }
             }
-
         }
     }
 
     token.cancel();
 
-    debug!("Exiting Message Handler");
+    debug!("(Task {}) Exiting Message Handler", task_id);
 
     Ok(())
 }
@@ -57,7 +58,7 @@ mod tests {
         let (_, rx) = tokio::sync::mpsc::channel(1);
 
         let t = token.clone();
-        let a = tokio::spawn(async move { message_handler(t, queue, rx).await });
+        let a = tokio::spawn(async move { message_handler(t, queue, rx, 0).await });
 
         tokio::time::sleep(Duration::from_secs(10)).await;
 

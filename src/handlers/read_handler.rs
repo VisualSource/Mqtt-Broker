@@ -29,18 +29,22 @@ pub async fn handle_read_stream<Reader>(
     queue: Arc<FifoQueue<Bytes>>,
     tx: Sender<ClientEvent>,
     reader: Reader,
+    task_id: usize,
 ) -> Result<(), MqttError>
 where
     Reader: AsyncRead + Unpin,
 {
-    let mut keepalive_duration: u64 = 60;
-    let mut protocal = ProtocalVersion::Unknown;
-    let mut seen_connect_packet = false;
+    debug!("(Task {}) Starting read handler", task_id);
     let mut cid: Option<String> = None;
+    let mut keepalive_duration: u64 = 60;
+    let mut seen_connect_packet = false;
+    let mut protocal = ProtocalVersion::Unknown;
     let keepalive = tokio::time::sleep(Duration::from_secs(60));
     let mut reader = tokio::io::BufReader::new(reader);
 
     tokio::pin!(keepalive);
+
+    let mut output = Ok(());
 
     loop {
         select! {
@@ -52,17 +56,20 @@ where
                             continue;
                         }
 
-                        debug!("Read {} bytes",len);
+                        debug!("(Task {}) Read {} bytes",task_id,len);
+
+                        broker_info::sent_data(len);
 
                         let buffer_data = bytes.to_vec();
                         reader.consume(len);
                         buffer_data
                     }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                    Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset || e.kind() == std::io::ErrorKind::ConnectionReset => {
+                        debug!("(Task {}) Connection lost",task_id);
                         break;
                     }
                     Err(err) => {
-                        error!("{}", err);
+                        error!("(Task {}) {}",task_id, err);
                         return Err(MqttError::Io(err));
                     }
                 };
@@ -71,6 +78,7 @@ where
                     Ok(packet) => match packet {
                         Packet::Connect(_, body) => {
                             if seen_connect_packet {
+                                debug!("( Task {}) Seen connect packet two times!",task_id);
                                 //  Client can only send the CONNECT Packet once over a Network Connection.
                                 // The Server MUST process a second CONNECT Packet sent from a Client as a protocol violation and disconnect the Client
                                 return Err(MqttError::ProtocolViolation);
@@ -97,14 +105,15 @@ where
                                 .await
                                 .is_err()
                             {
-                                error!("Receiver dropped. Closing");
-                                return Ok(());
+                                error!("(Task {}) Receiver dropped. Closing",task_id);
+                                break;
                             }
 
                             r_rx.await.map_err(|_| MqttError::QueuePoisonError)??;
 
                             seen_connect_packet = true;
-                            keepalive_duration = body.keepalive as u64;
+                            keepalive_duration = (body.keepalive as u64) + 4;
+                            debug!("(Task {}) Keepalive duration {} secs",task_id,keepalive_duration);
                             keepalive.as_mut().reset(Instant::now() + Duration::from_secs(keepalive_duration));
 
                             Ok(Some(Packet::make_connack(
@@ -138,18 +147,7 @@ where
                             Ok(data)
                         }
                         Packet::Disconnect(_) => {
-                            let id = cid.as_ref().ok_or_else(|| MqttError::FailedToGetCId)?;
-
-                            if message_bridge
-                                .send(Command::DisconnectClient(id.clone()))
-                                .await
-                                .is_err()
-                            {
-                                error!("Receiver dropped. Closing");
-                            }
-
-                            debug!("Exiting client");
-
+                            debug!("(Task {}) Exiting client",task_id);
                             break;
                         }
                         Packet::Subscribe(_, body) => {
@@ -167,8 +165,8 @@ where
                                 .await
                                 .is_err()
                             {
-                                error!("Receiver dropped!");
-                                return Ok(());
+                                error!("(Task {}) Receiver dropped!", task_id);
+                                break;
                             }
 
                             let codes = r_rx.await.map_err(|_| MqttError::QueuePoisonError)??;
@@ -189,8 +187,8 @@ where
                                 .await
                                 .is_err()
                             {
-                                error!("Receiver dropped. Closing");
-                                return Ok(());
+                                error!("(Task {}) Receiver dropped. Closing",task_id);
+                                break;
                             }
 
                             r_rx.await.map_err(|_| MqttError::QueuePoisonError)??;
@@ -201,7 +199,7 @@ where
                         Packet::PubRec(_, body) => Ok(Some(Packet::make_pubrel(body.packet_id)?)),
                         Packet::PubRel(_, body) => Ok(Some(Packet::make_pubcomp(body.packet_id)?)),
                         Packet::PingReq(_) => {
-                            debug!("renew keepalive");
+                            debug!("(Task {}) Renewed keepalive", task_id);
                             keepalive.as_mut().reset(Instant::now() + Duration::from_secs(keepalive_duration));
                             Ok(Some(Packet::make_ping_resp()?))
                         }
@@ -210,14 +208,13 @@ where
                     Err(err) => Err(err),
                 };
 
-                match result {
+                let data = match result {
                     Ok(data) => {
                         if let Some(message) = data {
                             queue.push(message)?;
                         }
-                    }
-                    Err(MqttError::ProtocolViolation) | Err(MqttError::MalformedHeader) => {
-                        break;
+
+                        Ok(false)
                     }
                     Err(MqttError::UnacceptableProtocolLevel) => {
                         queue.push(Packet::make_connack(
@@ -225,15 +222,28 @@ where
                             false,
                         )?)?;
 
-                        break;
+                        Ok(true)
                     }
                     Err(err) => {
-                        error!("{}", err);
-                        return Err(err);
+                        error!("(Task {}) {}",task_id, err);
+                       Err(err)
+                    }
+                };
+
+                match data {
+                    Ok(end) => {
+                        if end {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        output = Err(err);
+                        break;
                     }
                 }
             }
             () = &mut keepalive => {
+                debug!("(Task {}) Keepalive timemout",task_id);
                 break;
             }
             () = token.cancelled() => {
@@ -244,7 +254,13 @@ where
 
     token.cancel();
 
-    Ok(())
+    if let Some(id) = cid {
+        if let Err(err) = message_bridge.send(Command::DisconnectClient(id)).await {
+            error!("(Task {}) {}", task_id, err);
+        }
+    }
+
+    output
 }
 
 #[cfg(test)]

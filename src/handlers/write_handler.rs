@@ -5,17 +5,21 @@ use log::debug;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
-use crate::{core::queue::FifoQueue, error::MqttError};
+use crate::{
+    core::{broker_info, queue::FifoQueue},
+    error::MqttError,
+};
 
 pub async fn handle_write_stream<Writer>(
     cancellation: CancellationToken,
     mut writer: Writer,
     queue: Arc<FifoQueue<Bytes>>,
+    task_id: usize,
 ) -> Result<(), MqttError>
 where
     Writer: AsyncWrite + Unpin,
 {
-    debug!("Staring Write stream");
+    debug!("(Task {}) Client: Staring Write handler", task_id);
     loop {
         let empty = queue.is_empty()?;
         if empty && cancellation.is_cancelled() {
@@ -24,16 +28,17 @@ where
         if !empty {
             if let Some(message) = queue.pop()? {
                 let len = writer.write(&message).await?;
-                debug!("Wrote {} bytes", len);
+                debug!("(Task {}) Wrote {} bytes", task_id, len);
+                broker_info::received_data(len);
             }
         }
     }
 
-    debug!("Cancel");
     cancellation.cancel();
-    debug!("Shutdown");
     writer.shutdown().await?;
-    debug!("Finished");
+
+    debug!("(Task {}) Client: Exiting write handler", task_id);
+
     Ok(())
 }
 
@@ -70,7 +75,8 @@ mod tests {
             .write_error(std::io::Error::from(std::io::ErrorKind::Other))
             .build();
 
-        let handle = tokio::spawn(async move { handle_write_stream(token, writer, queue).await });
+        let handle =
+            tokio::spawn(async move { handle_write_stream(token, writer, queue, 0).await });
 
         tokio::time::sleep(Duration::from_secs(5)).await;
 
@@ -94,7 +100,7 @@ mod tests {
 
         let token_ref = token.clone();
         let handle =
-            tokio::spawn(async move { handle_write_stream(token_ref, writer, queue).await });
+            tokio::spawn(async move { handle_write_stream(token_ref, writer, queue, 0).await });
 
         info!("Sleep for 5 sec");
         tokio::time::sleep(Duration::from_secs(5)).await;
