@@ -94,9 +94,9 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                         }
 
                         let code = match qos {
-                            QosLevel::AtMostOnce => SubackReturnCode::SuccessQosZero,
-                            QosLevel::AtLeastOnce => SubackReturnCode::SuccessQosOne,
-                            QosLevel::ExactlyOnce => SubackReturnCode::SuccessQosTwo,
+                            QosLevel::AtMost => SubackReturnCode::SuccessQosZero,
+                            QosLevel::AtLeast => SubackReturnCode::SuccessQosOne,
+                            QosLevel::Exactly => SubackReturnCode::SuccessQosTwo,
                         };
 
                         codes.push(code);
@@ -112,7 +112,7 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                     debug!("Publish topic: {}", topic);
                     for (target, qos) in targets {
                         broker_info::sent_published();
-                        if let Ok(packet) = Packet::make_publish(
+                        /*if let Ok(packet) = Packet::make_publish(
                             false,
                             *qos,
                             false,
@@ -123,7 +123,7 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                             if let Err(e) = target.send(ClientEvent::Message(packet)).await {
                                 log::error!("receiver dropped: {}", e);
                             }
-                        }
+                        }*/
                     }
                 }
                 Command::Unsubscribe {
@@ -151,7 +151,7 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
         debug!("Exiting Command loop");
     });
 
-    if config.sys_interval != 0 {
+    /*if config.sys_interval != 0 {
         let birge = tx.clone();
         let ctoken = token.clone();
         tracker.spawn(async move {
@@ -217,7 +217,7 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
 
             debug!("Exiting sys info");
         });
-    }
+    }*/
 
     select! {
         _ = async {

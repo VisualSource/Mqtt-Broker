@@ -1,22 +1,18 @@
-use bytes::{BufMut, Bytes, BytesMut};
-use log::debug;
+use std::mem::size_of;
 
-use crate::error::MqttError;
+use bytes::{BufMut, Bytes, BytesMut};
+
+use crate::{
+    core::enums::ProtocalVersion,
+    error::MqttError,
+    packets::{enums::PacketType, headers::fixed_header::FixedHeader},
+};
 
 use self::{
     enums::{ConnectReturnCode, QosLevel, SubackReturnCode},
-    headers::{
-        ack::AckHeader,
-        connack::{AcknowledgeFlags, ConnackHeader},
-        connect::ConnectHeader,
-        fixed_header::FixedHeader,
-        publish::PublishHeader,
-        suback::SubackHeader,
-        subscribe::SubscribeHeader,
-        unsubscribe::UnsubscribeHeader,
-    },
-    traits::{FromBytes, ToBytes},
-    utils::encode_length,
+    headers::{connack::AcknowledgeFlags, connect::Flags},
+    traits::FromBytes,
+    utils::{encode_length, unpack_bytes, unpack_properties, unpack_string, unpack_u16},
 };
 
 pub mod enums;
@@ -25,307 +21,546 @@ mod traits;
 mod utils;
 
 #[derive(Debug)]
-pub enum Packet {
-    Connect(FixedHeader, ConnectHeader),
-    ConnAck(FixedHeader, ConnackHeader),
-    Subscribe(FixedHeader, SubscribeHeader),
-    Unsubscribe(FixedHeader, UnsubscribeHeader),
-    SubAck(FixedHeader, SubackHeader),
-    Publish(FixedHeader, PublishHeader),
-    /// A PUBACK Packet is the response to a PUBLISH Packet with QoS level 1.
-    PubAck(FixedHeader, AckHeader),
-    /// A PUBREC Packet is the response to a PUBLISH Packet with QoS 2. It is the second packet of the QoS 2 protocol exchange.
-    PubRec(FixedHeader, AckHeader),
-    /// A PUBREL Packet is the response to a PUBREC Packet. It is the third packet of the QoS 2 protocol exchange.
-    PubRel(FixedHeader, AckHeader),
-    PubComp(FixedHeader, AckHeader),
-    UnsubAck(FixedHeader, AckHeader),
-    PingReq(FixedHeader),
-    PingResp(FixedHeader),
-    Disconnect(FixedHeader),
+pub enum VariableHeader {
+    Connect {
+        flags: Flags,
+        /// The Keep Alive is a Two Byte Integer which is a time interval measured in seconds. It is the maximum time interval that is permitted to elapse between the point at which the Client finishes transmitting one MQTT Control Packet and the point it starts sending the next.
+        /// It is the responsibility of the Client to ensure that the interval between MQTT Control Packets being sent does not exceed the Keep Alive value.
+        keepalive: u16,
+
+        client_id: String,
+        username: Option<String>,
+        password: Option<String>,
+        will_topic: Option<String>,
+        will_message: Option<String>,
+        protocol_version: ProtocalVersion,
+
+        session_expiry_interval: Option<u32>,
+        receive_maximum: u16,
+        maximum_packet_size: Option<u32>,
+        topic_alias_maximum: u16,
+        request_response_info: bool,
+        request_problem_info: bool,
+        user_properties: Vec<(String, String)>,
+        auth_method: Option<String>,
+        auth_data: Option<Bytes>,
+    },
+    ConnAck {
+        acknowledge_flags: AcknowledgeFlags,
+        return_code: ConnectReturnCode,
+    },
+    Subscribe {
+        packet_id: u16,
+        tuples: Vec<(String, QosLevel)>,
+    },
+    Unsubscribe {
+        packet_id: u16,
+        tuples: Vec<String>,
+    },
+    Publish {
+        topic: String,
+        packet_id: Option<u16>,
+        payload: Bytes,
+    },
+    SubAck {
+        packet_id: u16,
+        return_codes: Vec<SubackReturnCode>,
+    },
+    PubAck {
+        packet_id: u16,
+    },
+    PubRec {
+        packet_id: u16,
+    },
+    PubRel {
+        packet_id: u16,
+    },
+    PubComp {
+        packet_id: u16,
+    },
+    UnsubAck {
+        packet_id: u16,
+    },
+    PingReq,
+    PingResp,
+    Disconnect,
+}
+
+impl VariableHeader {
+    fn pack(self) -> Bytes {
+        let mut bytes = BytesMut::new();
+
+        match self {
+            VariableHeader::Connect {
+                flags,
+                keepalive,
+                client_id,
+                username,
+                password,
+                will_topic,
+                will_message,
+                protocol_version,
+                session_expiry_interval,
+                receive_maximum,
+                maximum_packet_size,
+                topic_alias_maximum,
+                request_response_info,
+                request_problem_info,
+                user_properties,
+                auth_method,
+                auth_data,
+            } => {
+                let will = flags.will();
+                let has_psd = flags.has_password();
+                let has_usr = flags.has_username();
+
+                bytes.put_u16(4); // str len
+                bytes.put_slice(b"MQTT");
+                bytes.put_u8(protocol_version.into()); // protocal version
+                bytes.put_u8(flags.into());
+                bytes.put_u16(keepalive);
+                bytes.put_u16(client_id.len() as u16);
+                bytes.put(client_id.as_bytes());
+
+                if will {
+                    if let Some(wt) = will_topic {
+                        bytes.put_u16(wt.len() as u16);
+                        bytes.put(wt.as_bytes());
+                    }
+                    if let Some(wm) = will_message {
+                        bytes.put_u16(wm.len() as u16);
+                        bytes.put(wm.as_bytes());
+                    }
+                }
+
+                if has_usr {
+                    if let Some(usr) = username {
+                        bytes.put_u16(usr.len() as u16);
+                        bytes.put(usr.as_bytes());
+                    }
+                }
+
+                if has_psd {
+                    if let Some(psd) = password {
+                        bytes.put_u16(psd.len() as u16);
+                        bytes.put(psd.as_bytes());
+                    }
+                }
+            }
+            VariableHeader::ConnAck {
+                acknowledge_flags,
+                return_code,
+            } => {
+                bytes.put_u8(acknowledge_flags.into());
+                bytes.put_u8(return_code.into());
+            }
+            VariableHeader::Subscribe { packet_id, tuples } => {
+                bytes.put_u16(packet_id);
+                for (topic, qos) in tuples {
+                    bytes.put_u16(topic.len() as u16);
+                    bytes.put(topic.as_bytes());
+                    bytes.put_u8(qos.into());
+                }
+            }
+            VariableHeader::Unsubscribe { packet_id, tuples } => {
+                bytes.put_u16(packet_id);
+
+                for x in tuples {
+                    bytes.put_u16(x.len() as u16);
+                    bytes.put(x.as_bytes());
+                }
+            }
+            VariableHeader::Publish {
+                topic,
+                packet_id,
+                payload,
+            } => {
+                bytes.put_u16(topic.len() as u16);
+                bytes.put(topic.as_bytes());
+
+                if let Some(id) = packet_id {
+                    bytes.put_u16(id);
+                }
+
+                bytes.put(payload);
+            }
+            VariableHeader::SubAck {
+                packet_id,
+                return_codes,
+            } => {
+                bytes.put_u16(packet_id);
+                for code in return_codes {
+                    bytes.put_u8(code.into());
+                }
+            }
+            VariableHeader::UnsubAck { packet_id }
+            | VariableHeader::PubComp { packet_id }
+            | VariableHeader::PubRel { packet_id }
+            | VariableHeader::PubRec { packet_id }
+            | VariableHeader::PubAck { packet_id } => {
+                bytes.put_u16(packet_id);
+            }
+
+            VariableHeader::Disconnect | VariableHeader::PingReq | VariableHeader::PingResp => {}
+        }
+
+        bytes.freeze()
+    }
+    fn unpack<'a, I>(iter: &mut I, fixed: &FixedHeader) -> Result<Self, MqttError>
+    where
+        I: Iterator<Item = &'a u8>,
+    {
+        match fixed.get_packet_type()? {
+            PacketType::Connect => {
+                let protocal_name = unpack_string(iter)?;
+                if &protocal_name != "MQTT" {
+                    return Err(MqttError::UnknownProtocol);
+                }
+
+                let protocol_version = ProtocalVersion::from(
+                    *iter
+                        .next()
+                        .ok_or_else(|| MqttError::RequiredByteMissing("Missing protocal byte"))?,
+                );
+
+                if protocol_version != ProtocalVersion::Four
+                /*|| connect_header.protocal_version != 5*/
+                {
+                    return Err(MqttError::UnacceptableProtocolLevel);
+                }
+
+                let flags = Flags::from(
+                    iter.next()
+                        .ok_or_else(|| MqttError::RequiredByteMissing("Missing connect flags"))?,
+                );
+
+                if flags.validate_flags() {
+                    return Err(MqttError::MalformedHeader);
+                }
+
+                let keepalive = unpack_u16(iter)?;
+
+                if protocol_version == ProtocalVersion::Five {
+                    let props = unpack_properties(iter)?;
+                }
+
+                let client_id = {
+                    let id = unpack_string(iter)?;
+
+                    if id.is_empty() {
+                        if !flags.clean_session() {
+                            return Err(MqttError::ClientIdentifierRejected);
+                        }
+                        uuid::Uuid::new_v4().to_string()
+                    } else {
+                        id
+                    }
+                };
+
+                let (will_topic, will_message) = if flags.will() {
+                    if protocol_version == ProtocalVersion::Five {
+                        todo!("Implement Variable string header");
+
+                        // Will Delay interval
+                        // Payload Format undicator
+                        // Message Expiry Interval
+                        // Content Type
+                        // Response Topic
+                        // Correlation Data
+                        // User Property
+                    }
+
+                    (Some(unpack_string(iter)?), Some(unpack_string(iter)?))
+                } else {
+                    (None, None)
+                };
+
+                let username = if flags.has_username() {
+                    Some(unpack_string(iter)?)
+                } else {
+                    None
+                };
+
+                let password = if flags.has_password() {
+                    Some(unpack_string(iter)?)
+                } else {
+                    None
+                };
+
+                Ok(Self::Connect {
+                    flags,
+                    keepalive,
+                    client_id,
+                    username,
+                    password,
+                    will_topic,
+                    will_message,
+                    protocol_version,
+                    session_expiry_interval: None,
+                    receive_maximum: 0,
+                    maximum_packet_size: None,
+                    topic_alias_maximum: 0,
+                    request_response_info: true,
+                    request_problem_info: true,
+                    user_properties: Vec::default(),
+                    auth_method: None,
+                    auth_data: None,
+                })
+            }
+            PacketType::Connack => {
+                let flags_byte = iter.next().ok_or_else(|| MqttError::MissingByte)?;
+                let flags = AcknowledgeFlags::from(*flags_byte);
+
+                let rc_byte = iter.next().ok_or_else(|| MqttError::MissingByte)?;
+                let rc = ConnectReturnCode::try_from(rc_byte)?;
+
+                Ok(Self::ConnAck {
+                    acknowledge_flags: flags,
+                    return_code: rc,
+                })
+            }
+            PacketType::Publish => {
+                let topic = unpack_string(iter)?;
+
+                /*
+                 * Message len is calculated subtracting the length of the variable header
+                 * from the Remaining Length field that is in the Fixed Header
+                 */
+                let mut len = fixed.get_remaing_len();
+
+                let packet_id = if fixed.get_qos()? > QosLevel::AtMost {
+                    let id = Some(unpack_u16(iter)?);
+                    len -= size_of::<u16>();
+                    id
+                } else {
+                    None
+                };
+
+                len -= size_of::<u16>() + topic.len();
+
+                let payload = unpack_bytes(iter, len)?;
+
+                Ok(Self::Publish {
+                    topic,
+                    packet_id,
+                    payload,
+                })
+            }
+            PacketType::Puback => {
+                let id = unpack_u16(iter)?;
+                Ok(Self::PubAck { packet_id: id })
+            }
+            PacketType::Pubrec => {
+                let id = unpack_u16(iter)?;
+                Ok(Self::PubRec { packet_id: id })
+            }
+            PacketType::Pubrel => {
+                let id = unpack_u16(iter)?;
+                Ok(Self::PubRel { packet_id: id })
+            }
+            PacketType::Pubcomp => {
+                let id = unpack_u16(iter)?;
+                Ok(Self::PubComp { packet_id: id })
+            }
+            PacketType::Subscribe => {
+                if !fixed.get_dup() && fixed.get_qos()? != QosLevel::AtLeast && fixed.get_retain() {
+                    return Err(MqttError::MalformedHeader);
+                }
+                let mut len = fixed.get_remaing_len();
+
+                // # Variable header
+
+                let packet_id = unpack_u16(iter)?;
+                len -= size_of::<u16>();
+
+                // # Payload
+                /*
+                 * Read in a loop all remaining bytes specified by len of the Fixed Header.
+                 * From now on the payload consists of 3-tuples formed by:
+                 *  - topic filter (string)
+                 *  - qos
+                 */
+                let mut tuples = Vec::new();
+                while len > 0 {
+                    let topic = unpack_string(iter)?;
+                    len -= topic.len() + size_of::<u16>();
+
+                    let qos = QosLevel::try_from(
+                        *iter.next().ok_or_else(|| MqttError::MalformedHeader)?,
+                    )?;
+
+                    len -= size_of::<u8>();
+
+                    tuples.push((topic, qos));
+                }
+
+                if tuples.is_empty() {
+                    return Err(MqttError::ProtocolViolation);
+                }
+
+                Ok(Self::Subscribe { packet_id, tuples })
+            }
+            PacketType::Suback => {
+                let packet_id = unpack_u16(iter)?;
+
+                let mut len = fixed.get_remaing_len() - size_of::<u16>();
+
+                let mut return_codes = Vec::new();
+                while len > 0 {
+                    let byte = iter.next().ok_or_else(|| MqttError::MissingByte)?;
+
+                    return_codes.push(SubackReturnCode::try_from(byte)?);
+
+                    len -= size_of::<u8>()
+                }
+
+                Ok(Self::SubAck {
+                    packet_id,
+                    return_codes,
+                })
+            }
+            PacketType::Unsubscribe => {
+                let mut len = fixed.get_remaing_len();
+                let mut tuples = Vec::<String>::new();
+                let packet_id = unpack_u16(iter)?;
+                len -= size_of::<u16>();
+
+                while len > 0 {
+                    len -= size_of::<u16>();
+
+                    let topic = unpack_string(iter)?;
+                    len -= topic.len();
+
+                    tuples.push(topic);
+                }
+
+                Ok(Self::Unsubscribe { packet_id, tuples })
+            }
+            PacketType::Unsuback => {
+                let id = unpack_u16(iter)?;
+                Ok(Self::UnsubAck { packet_id: id })
+            }
+            PacketType::PingReq => Ok(Self::PingReq),
+            PacketType::PingResp => Ok(Self::PingResp),
+            PacketType::Disconnect => Ok(Self::Disconnect),
+            PacketType::Auth => todo!(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Packet {
+    pub fixed: FixedHeader,
+    pub variable: VariableHeader,
 }
 
 impl Packet {
+    pub fn new(header: FixedHeader, variable: VariableHeader) -> Self {
+        Self {
+            fixed: header,
+            variable,
+        }
+    }
     pub fn make_publish(
         dup: bool,
         qos: QosLevel,
         retain: bool,
         topic: String,
-        pkt_id: Option<u16>,
+        packet_id: Option<u16>,
         payload: Bytes,
-    ) -> Result<Bytes, MqttError> {
-        Packet::Publish(
-            FixedHeader::new(enums::PacketType::Publish, dup, qos, retain, 0),
-            PublishHeader::new(topic, pkt_id, payload),
-        )
+    ) -> Bytes {
+        Self {
+            fixed: FixedHeader::new(PacketType::Publish, dup, qos, retain, 0),
+            variable: VariableHeader::Publish {
+                topic,
+                packet_id,
+                payload,
+            },
+        }
+        .pack()
+    }
+    pub fn make_pubcomp(packet_id: u16) -> Bytes {
+        Self {
+            fixed: FixedHeader::new(PacketType::Pubcomp, false, QosLevel::AtMost, false, 0),
+            variable: VariableHeader::PubComp { packet_id },
+        }
+        .pack()
+    }
+    pub fn make_pubrel(packet_id: u16) -> Bytes {
+        Self {
+            fixed: FixedHeader::new(PacketType::Pubrel, false, QosLevel::AtLeast, false, 0),
+            variable: VariableHeader::PubRel { packet_id },
+        }
+        .pack()
+    }
+    pub fn make_pubrec(packet_id: u16) -> Bytes {
+        Self {
+            fixed: FixedHeader::new(PacketType::Pubrec, false, QosLevel::AtMost, false, 0),
+            variable: VariableHeader::PubRec { packet_id },
+        }
+        .pack()
+    }
+    pub fn make_puback(packet_id: u16) -> Bytes {
+        Self {
+            fixed: FixedHeader::new(PacketType::Puback, false, QosLevel::AtMost, false, 0),
+            variable: VariableHeader::PubAck { packet_id },
+        }
+        .pack()
+    }
+    pub fn make_unsuback(packet_id: u16) -> Bytes {
+        Self {
+            fixed: FixedHeader::new(PacketType::Unsuback, false, QosLevel::AtMost, false, 0),
+            variable: VariableHeader::UnsubAck { packet_id },
+        }
+        .pack()
+    }
+    pub fn make_ping_resp() -> Bytes {
+        Self {
+            fixed: FixedHeader::new(PacketType::PingResp, false, QosLevel::AtMost, false, 0),
+            variable: VariableHeader::PingResp,
+        }
+        .pack()
+    }
+    pub fn make_suback(packet_id: u16, rc: Vec<SubackReturnCode>) -> Bytes {
+        Self {
+            fixed: FixedHeader::new(PacketType::Suback, false, QosLevel::AtMost, false, 0),
+            variable: VariableHeader::SubAck {
+                packet_id,
+                return_codes: rc,
+            },
+        }
+        .pack()
+    }
+    pub fn make_connack(rc: ConnectReturnCode, session_present: bool) -> Bytes {
+        Self {
+            fixed: FixedHeader::new(PacketType::Connack, false, QosLevel::AtMost, false, 0),
+            variable: VariableHeader::ConnAck {
+                acknowledge_flags: AcknowledgeFlags::new(session_present),
+                return_code: rc,
+            },
+        }
         .pack()
     }
 
-    pub fn make_pubcomp(packet_id: u16) -> Result<Bytes, MqttError> {
-        Packet::PubComp(
-            FixedHeader::new(
-                enums::PacketType::Puback,
-                false,
-                QosLevel::AtMostOnce,
-                false,
-                0,
-            ),
-            AckHeader::new(packet_id),
-        )
-        .pack()
-    }
+    pub fn pack(self) -> Bytes {
+        let mut buffer = BytesMut::new();
 
-    pub fn make_pubrel(packet_id: u16) -> Result<Bytes, MqttError> {
-        Packet::PubRel(
-            FixedHeader::new(
-                enums::PacketType::Puback,
-                false,
-                QosLevel::AtLeastOnce,
-                false,
-                0,
-            ),
-            AckHeader::new(packet_id),
-        )
-        .pack()
-    }
+        self.fixed.as_byte(&mut buffer);
 
-    pub fn make_pubrec(packet_id: u16) -> Result<Bytes, MqttError> {
-        Packet::PubRec(
-            FixedHeader::new(
-                enums::PacketType::Puback,
-                false,
-                QosLevel::AtMostOnce,
-                false,
-                0,
-            ),
-            AckHeader::new(packet_id),
-        )
-        .pack()
-    }
+        let variable = self.variable.pack();
 
-    pub fn make_puback(pkt_id: u16) -> Result<Bytes, MqttError> {
-        Packet::PubAck(
-            FixedHeader::new(
-                enums::PacketType::Puback,
-                false,
-                QosLevel::AtMostOnce,
-                false,
-                0,
-            ),
-            AckHeader::new(pkt_id),
-        )
-        .pack()
-    }
+        encode_length(variable.len(), &mut buffer);
 
-    pub fn make_unsuback(pkt_id: u16) -> Result<Bytes, MqttError> {
-        Packet::UnsubAck(
-            FixedHeader::new(
-                enums::PacketType::Unsuback,
-                false,
-                QosLevel::AtMostOnce,
-                false,
-                0,
-            ),
-            AckHeader::new(pkt_id),
-        )
-        .pack()
-    }
+        buffer.put(variable);
 
-    pub fn make_ping_resp() -> Result<Bytes, MqttError> {
-        Packet::PingResp(FixedHeader::new(
-            enums::PacketType::PingResp,
-            false,
-            enums::QosLevel::AtMostOnce,
-            false,
-            0,
-        ))
-        .pack()
+        buffer.freeze()
     }
-
-    pub fn make_suback(packet_id: u16, rc_list: Vec<SubackReturnCode>) -> Result<Bytes, MqttError> {
-        Packet::SubAck(
-            FixedHeader::new(
-                enums::PacketType::Suback,
-                false,
-                enums::QosLevel::AtMostOnce,
-                false,
-                0,
-            ),
-            SubackHeader::new(packet_id, rc_list),
-        )
-        .pack()
-    }
-
-    pub fn make_connack(rc: ConnectReturnCode, session_present: bool) -> Result<Bytes, MqttError> {
-        Packet::ConnAck(
-            FixedHeader::new(
-                enums::PacketType::Connack,
-                false,
-                enums::QosLevel::AtMostOnce,
-                false,
-                0,
-            ),
-            ConnackHeader::new(AcknowledgeFlags::new(session_present), rc),
-        )
-        .pack()
-    }
-
-    pub fn unpack(bytes: &[u8]) -> Result<Packet, MqttError> {
+    pub fn unpack(bytes: &[u8]) -> Result<Self, MqttError> {
         let mut iter = bytes.iter();
 
-        let header = FixedHeader::from_bytes(&mut iter, None)?;
-
-        let packet_type = header.get_packet_type()?;
-
-        debug!("Unpack: packet type {:#?}", packet_type);
-
-        match packet_type {
-            enums::PacketType::Connect => Ok(Self::Connect(
-                header,
-                ConnectHeader::from_bytes(&mut iter, None)?,
-            )),
-            enums::PacketType::Connack => {
-                let connack = ConnackHeader::from_bytes(&mut iter, None)?;
-                Ok(Self::ConnAck(header, connack))
-            }
-            enums::PacketType::Publish => {
-                let publish = PublishHeader::from_bytes(&mut iter, Some(&header))?;
-
-                Ok(Self::Publish(header, publish))
-            }
-            enums::PacketType::Puback => Ok(Self::PubAck(
-                header,
-                AckHeader::from_bytes(&mut iter, None)?,
-            )),
-            enums::PacketType::Pubrec => Ok(Self::PubRec(
-                header,
-                AckHeader::from_bytes(&mut iter, None)?,
-            )),
-            enums::PacketType::Pubrel => Ok(Self::PubRel(
-                header,
-                AckHeader::from_bytes(&mut iter, None)?,
-            )),
-            enums::PacketType::Pubcomp => Ok(Self::PubComp(
-                header,
-                AckHeader::from_bytes(&mut iter, None)?,
-            )),
-            enums::PacketType::Subscribe => {
-                let subscribe = SubscribeHeader::from_bytes(&mut iter, Some(&header))?;
-                Ok(Self::Subscribe(header, subscribe))
-            }
-            enums::PacketType::Suback => {
-                let h = SubackHeader::from_bytes(&mut iter, Some(&header))?;
-                Ok(Self::SubAck(header, h))
-            }
-            enums::PacketType::Unsubscribe => {
-                let unsubscribe = UnsubscribeHeader::from_bytes(&mut iter, Some(&header))?;
-                Ok(Self::Unsubscribe(header, unsubscribe))
-            }
-            enums::PacketType::Unsuback => Ok(Self::UnsubAck(
-                header,
-                AckHeader::from_bytes(&mut iter, None)?,
-            )),
-            enums::PacketType::PingReq => Ok(Self::PingReq(header)),
-            enums::PacketType::PingResp => Ok(Self::PingResp(header)),
-            enums::PacketType::Disconnect => Ok(Self::Disconnect(header)),
-            _ => Err(MqttError::ReservedPacketType),
-        }
-    }
-    pub fn pack(&self) -> Result<Bytes, MqttError> {
-        match self {
-            Packet::Connect(header, body) => {
-                let mut bytes = BytesMut::new();
-
-                header.as_byte(&mut bytes);
-
-                let vhp = body.to_bytes()?;
-
-                encode_length(vhp.len(), &mut bytes);
-                bytes.put(vhp);
-
-                Ok(bytes.freeze())
-            }
-            Packet::ConnAck(header, body) => {
-                let mut bytes = BytesMut::new();
-
-                header.as_byte(&mut bytes);
-
-                let vhp = body.to_bytes()?;
-                encode_length(vhp.len(), &mut bytes);
-                bytes.put(vhp);
-
-                Ok(bytes.freeze())
-            }
-            Packet::Subscribe(header, body) => {
-                let mut packet = BytesMut::new();
-
-                header.as_byte(&mut packet);
-
-                let vhp = body.to_bytes()?;
-                encode_length(vhp.len(), &mut packet);
-
-                packet.put(vhp);
-
-                Ok(packet.freeze())
-            }
-            Packet::Unsubscribe(header, body) => {
-                let mut packet = BytesMut::new();
-                header.as_byte(&mut packet);
-
-                let vhp = body.to_bytes()?;
-                encode_length(vhp.len(), &mut packet);
-
-                packet.put(vhp);
-                Ok(packet.freeze())
-            }
-            Packet::SubAck(header, body) => {
-                let mut packet = BytesMut::new();
-
-                header.as_byte(&mut packet);
-
-                let vhp = body.to_bytes()?;
-                encode_length(vhp.len(), &mut packet);
-
-                packet.put(vhp);
-
-                Ok(packet.freeze())
-            }
-            Packet::Publish(header, body) => {
-                let mut packet = BytesMut::new();
-
-                header.as_byte(&mut packet);
-
-                let vhp = body.to_bytes()?;
-                encode_length(vhp.len(), &mut packet);
-
-                packet.put(vhp);
-
-                Ok(packet.freeze())
-            }
-            Packet::UnsubAck(header, body)
-            | Packet::PubComp(header, body)
-            | Packet::PubRel(header, body)
-            | Packet::PubAck(header, body)
-            | Packet::PubRec(header, body) => {
-                let mut packet = BytesMut::new();
-
-                header.as_byte(&mut packet);
-
-                let vhp = body.to_bytes()?;
-
-                encode_length(vhp.len(), &mut packet);
-
-                packet.put(vhp);
-
-                Ok(packet.freeze())
-            }
-            Packet::Disconnect(header) | Packet::PingResp(header) | Packet::PingReq(header) => {
-                let mut packet = BytesMut::new();
-                header.as_byte(&mut packet);
-                packet.put_u8(0x00);
-                Ok(packet.freeze())
-            }
-        }
+        let fixed = FixedHeader::from_bytes(&mut iter, None)?;
+        let variable = VariableHeader::unpack(&mut iter, &fixed)?;
+        Ok(Self { fixed, variable })
     }
 }
 
@@ -333,17 +568,9 @@ impl Packet {
 mod tests {
     use bytes::Bytes;
 
-    use crate::packets::{
-        enums::QosLevel,
-        headers::{
-            publish::PublishHeader, subscribe::SubscribeHeader, unsubscribe::UnsubscribeHeader,
-        },
-    };
+    use crate::{core::enums::ProtocalVersion, packets::enums::QosLevel};
 
-    use super::{
-        headers::{connect::ConnectHeader, fixed_header::FixedHeader},
-        Packet,
-    };
+    use super::{headers::fixed_header::FixedHeader, Packet, VariableHeader};
     // https://cedalo.com/blog/mqtt-packet-guide/
     #[test]
     fn test_unpack_connect_packet() {
@@ -362,30 +589,44 @@ mod tests {
 
         let packet = Packet::unpack(&mut data).expect("Failed to parse connect packet");
 
-        if let Packet::Connect(header, body) = packet {
-            assert_eq!(header.get_remaing_len(), 30);
+        if let VariableHeader::Connect {
+            flags,
+            keepalive,
+            username,
+            password,
+            client_id,
+            ..
+        } = packet.variable
+        {
+            assert_eq!(packet.fixed.get_remaing_len(), 30);
 
-            assert_eq!(body.keepalive, 60);
+            assert_eq!(keepalive, 60);
 
-            assert!(body.flags.clean_session());
-            assert!(body.flags.has_password());
-            assert!(body.flags.has_username());
-            assert!(!body.flags.will());
-            assert_eq!(body.flags.will_qos().expect("QOS"), QosLevel::AtMostOnce);
-            assert!(!body.flags.will_retain());
+            assert!(flags.clean_session());
+            assert!(flags.has_password());
+            assert!(flags.has_username());
+            assert!(!flags.will());
+            assert_eq!(flags.will_qos().expect("QOS"), QosLevel::AtMost);
+            assert!(!flags.will_retain());
 
-            assert_eq!(body.username.len(), 6, "Body Username is not of length '4'");
-            assert_eq!(body.password.len(), 4, "Body Password is not of length '4'");
-            assert_eq!(&body.client_id, "myPy");
-            assert_eq!(&body.password, "pass");
-            assert_eq!(&body.username, "client");
+            assert!(username.is_some());
+            assert!(password.is_some());
+
+            let usr = username.expect("Failed to get user");
+            let psd = password.expect("Failed to get password");
+
+            assert_eq!(usr.len(), 6, "Body Username is not of length '4'");
+            assert_eq!(psd.len(), 4, "Body Password is not of length '4'");
+            assert_eq!(&client_id, "myPy");
+            assert_eq!(&psd, "pass");
+            assert_eq!(&usr, "client");
 
             assert_eq!(
-                body.flags.will_qos().expect("Failed to get qos"),
-                QosLevel::AtMostOnce
+                flags.will_qos().expect("Failed to get qos"),
+                QosLevel::AtMost
             );
 
-            assert_eq!(body.keepalive, 60)
+            assert_eq!(keepalive, 60)
         } else {
             panic!("Packet was not a connect packet");
         }
@@ -403,23 +644,28 @@ mod tests {
 
         let packet = Packet::unpack(&data).expect("Failed to parse connect packet");
 
-        if let Packet::Publish(header, body) = packet {
-            assert_eq!(header.get_remaing_len(), 14);
+        if let VariableHeader::Publish {
+            packet_id,
+            payload,
+            topic,
+        } = packet.variable
+        {
+            assert_eq!(packet.fixed.get_remaing_len(), 14);
 
             assert_eq!(
-                header.get_qos().expect("Failed to get QOS"),
-                QosLevel::AtLeastOnce
+                packet.fixed.get_qos().expect("Failed to get QOS"),
+                QosLevel::AtLeast
             );
-            assert!(header.get_retain());
+            assert!(packet.fixed.get_retain());
 
-            assert_eq!(&body.topic, "info");
+            assert_eq!(&topic, "info");
 
-            assert!(body.packet_id.is_some());
-            assert_eq!(body.packet_id.expect("Failed to get packet id"), 2);
+            assert!(packet_id.is_some());
+            assert_eq!(packet_id.expect("Failed to get packet id"), 2);
 
-            assert_eq!(body.payload.len(), 6);
+            assert_eq!(payload.len(), 6);
 
-            let s = String::from_utf8(body.payload.to_vec()).expect("Failed to parse string");
+            let s = String::from_utf8(payload.to_vec()).expect("Failed to parse string");
 
             assert_eq!(&s, "Cedalo");
         } else {
@@ -440,14 +686,14 @@ mod tests {
 
         let packet = Packet::unpack(&data).expect("Failed to parse connect packet");
 
-        if let Packet::Subscribe(header, body) = packet {
-            assert_eq!(header.get_remaing_len(), 12);
+        if let VariableHeader::Subscribe { packet_id, tuples } = packet.variable {
+            assert_eq!(packet.fixed.get_remaing_len(), 12);
 
-            assert_eq!(body.packet_id, 1);
+            assert_eq!(packet_id, 1);
 
-            assert_eq!(body.tuples.len(), 1);
-            assert_eq!(body.tuples[0].0, "mytopic");
-            assert_eq!(body.tuples[0].1, QosLevel::AtLeastOnce);
+            assert_eq!(tuples.len(), 1);
+            assert_eq!(tuples[0].0, "mytopic");
+            assert_eq!(tuples[0].1, QosLevel::AtLeast);
         } else {
             panic!("Invalid packet");
         }
@@ -464,13 +710,13 @@ mod tests {
 
         let packet = Packet::unpack(&data).expect("Failed to parse connect packet");
 
-        if let Packet::Unsubscribe(header, body) = packet {
-            assert_eq!(header.get_remaing_len(), 8, "remaing packet length");
+        if let VariableHeader::Unsubscribe { packet_id, tuples } = packet.variable {
+            assert_eq!(packet.fixed.get_remaing_len(), 8, "remaing packet length");
 
-            assert_eq!(body.packet_id, 1);
+            assert_eq!(packet_id, 1);
 
-            assert_eq!(body.tuples.len(), 1);
-            assert_eq!(body.tuples[0], "info");
+            assert_eq!(tuples.len(), 1);
+            assert_eq!(tuples[0], "info");
         } else {
             panic!("Invalid packet");
         }
@@ -481,7 +727,7 @@ mod tests {
         let header = FixedHeader::new(
             super::enums::PacketType::Connect,
             false,
-            QosLevel::AtMostOnce,
+            QosLevel::AtMost,
             false,
             30,
         );
@@ -489,25 +735,35 @@ mod tests {
         let flags = crate::packets::headers::connect::Flags::new(
             true,
             false,
-            QosLevel::AtMostOnce,
+            QosLevel::AtMost,
             false,
             true,
             true,
         );
 
-        let h = ConnectHeader::new(
+        let variable = VariableHeader::Connect {
             flags,
-            60,
-            "myPy".into(),
-            Some("client".into()),
-            Some("pass".into()),
-            None,
-            None,
-        );
+            keepalive: 60,
+            client_id: "myPy".into(),
+            username: Some("client".into()),
+            password: Some("pass".into()),
+            will_topic: None,
+            will_message: None,
+            protocol_version: ProtocalVersion::Four,
+            session_expiry_interval: None,
+            receive_maximum: 0,
+            maximum_packet_size: None,
+            topic_alias_maximum: 0,
+            request_response_info: false,
+            request_problem_info: false,
+            user_properties: Vec::default(),
+            auth_method: None,
+            auth_data: None,
+        };
 
-        let packet = Packet::Connect(header, h);
+        let packet = Packet::new(header, variable);
 
-        let bytes = packet.pack().expect("Packet failed to pack");
+        let bytes = packet.pack();
 
         let data: [u8; 32] = [
             0x10, // Fixed Header
@@ -527,21 +783,16 @@ mod tests {
 
     #[test]
     fn test_pack_publish_packet() {
-        let header = FixedHeader::new(
-            super::enums::PacketType::Publish,
-            false,
-            QosLevel::AtLeastOnce,
-            true,
-            14,
-        );
-
         let payload: [u8; 6] = [0x43, 0x65, 0x64, 0x61, 0x6c, 0x6f];
 
-        let p = PublishHeader::new("info".into(), Some(2), Bytes::copy_from_slice(&payload));
-
-        let packet = Packet::Publish(header, p)
-            .pack()
-            .expect("Failed to pack packet");
+        let packet = Packet::make_publish(
+            false,
+            QosLevel::AtLeast,
+            true,
+            "info".into(),
+            Some(2),
+            Bytes::copy_from_slice(&payload),
+        );
 
         let data: [u8; 16] = [
             0x33, // Fixed Header QOS 1, Retain 1
@@ -559,16 +810,17 @@ mod tests {
         let header = FixedHeader::new(
             super::enums::PacketType::Subscribe,
             false,
-            QosLevel::AtLeastOnce,
+            QosLevel::AtLeast,
             false,
             12,
         );
 
-        let a = SubscribeHeader::new(1, vec![("mytopic".into(), QosLevel::AtLeastOnce)]);
+        let v = VariableHeader::Subscribe {
+            packet_id: 1,
+            tuples: vec![("mytopic".into(), QosLevel::AtLeast)],
+        };
 
-        let packet = Packet::Subscribe(header, a)
-            .pack()
-            .expect("Failed to convert packet");
+        let packet = Packet::new(header, v).pack();
 
         let data: [u8; 14] = [
             0x82, // Header
@@ -587,16 +839,17 @@ mod tests {
         let header = FixedHeader::new(
             super::enums::PacketType::Unsubscribe,
             false,
-            QosLevel::AtLeastOnce,
+            QosLevel::AtLeast,
             false,
             8,
         );
 
-        let uh = UnsubscribeHeader::new(1, vec!["info".into()]);
+        let v = VariableHeader::Unsubscribe {
+            packet_id: 1,
+            tuples: vec!["info".into()],
+        };
 
-        let packet = Packet::Unsubscribe(header, uh)
-            .pack()
-            .expect("Failed to pack");
+        let packet = Packet::new(header, v).pack();
 
         let data: [u8; 10] = [
             0xA2, // Fixed Header

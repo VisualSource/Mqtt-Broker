@@ -107,23 +107,31 @@ pub enum QosLevel {
     /// The message is delivered according to the capabilities of the underlying network.
     /// No response is sent by the receiver and no retry is performed by the sender.
     /// The message arrives at the receiver either once or not at all.
-    AtMostOnce,
+    AtMost,
     ///  #### QoS 1: At least once delivery
     ///
-    /// This quality of service ensures that the message arrives at the receiver at least once. A QoS 1 PUBLISH Packet has a Packet Identifier in its variable header and is acknowledged by a PUBACK Packet. Section 2.3.1 provides more information about Packet Identifiers.
-    AtLeastOnce,
+    /// This quality of service ensures that the message arrives at the receiver at least once.
+    /// A QoS 1 PUBLISH Packet has a Packet Identifier in its variable header and is acknowledged by a PUBACK Packet.
+    /// Section 2.3.1 provides more information about Packet Identifiers.
+    AtLeast,
     /// #### QoS 2: Exactly once delivery
     ///
     /// This is the highest quality of service, for use when neither loss nor duplication of messages are acceptable. There is an increased overhead associated with this quality of service.
-    ExactlyOnce,
+    Exactly,
+}
+
+impl From<QosLevel> for u8 {
+    fn from(value: QosLevel) -> Self {
+        value as u8
+    }
 }
 
 impl Display for QosLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            QosLevel::AtMostOnce => write!(f, "Qos 0 (At Most Once)"),
-            QosLevel::AtLeastOnce => write!(f, "Qos 1 (At Least Once)"),
-            QosLevel::ExactlyOnce => write!(f, "Qos 2 (Ecactly Once)"),
+            QosLevel::AtMost => write!(f, "Qos 0 (At Most Once)"),
+            QosLevel::AtLeast => write!(f, "Qos 1 (At Least Once)"),
+            QosLevel::Exactly => write!(f, "Qos 2 (Ecactly Once)"),
         }
     }
 }
@@ -133,9 +141,9 @@ impl TryFrom<u8> for QosLevel {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(QosLevel::AtMostOnce),
-            1 => Ok(QosLevel::AtLeastOnce),
-            2 => Ok(QosLevel::ExactlyOnce),
+            0 => Ok(QosLevel::AtMost),
+            1 => Ok(QosLevel::AtLeast),
+            2 => Ok(QosLevel::Exactly),
             _ => Err(MqttError::Convertion(value.to_string(), "QosLevel".into())),
         }
     }
@@ -202,6 +210,12 @@ pub enum ConnectReturnCode {
     ConnectionRateExceeded = 0x9F,
 }
 
+impl From<ConnectReturnCode> for u8 {
+    fn from(value: ConnectReturnCode) -> Self {
+        value as u8
+    }
+}
+
 impl TryFrom<u8> for ConnectReturnCode {
     type Error = MqttError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -242,7 +256,15 @@ pub enum SubackReturnCode {
     SuccessQosTwo = 0x02,
     Failure = 0x80,
 }
+
+impl From<SubackReturnCode> for u8 {
+    fn from(value: SubackReturnCode) -> Self {
+        value as u8
+    }
+}
+
 impl SubackReturnCode {
+    #[deprecated]
     pub fn to_u8(&self) -> u8 {
         match self {
             Self::SuccessQosZero => 0x00,

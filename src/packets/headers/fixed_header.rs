@@ -163,7 +163,7 @@ impl Default for FixedHeader {
         bit |= true as u8;
 
         // bit 2-1
-        bit |= (QosLevel::ExactlyOnce as u8) << 1;
+        bit |= (QosLevel::Exactly as u8) << 1;
 
         // bit 3
         bit |= (true as u8) << 3;
@@ -219,7 +219,7 @@ mod tests {
         );
         assert_eq!(
             header.get_qos().expect("Failed to get qos"),
-            QosLevel::AtMostOnce
+            QosLevel::AtMost
         );
         assert!(!header.get_dup());
         assert!(!header.get_retain());
@@ -245,16 +245,16 @@ mod tests {
     fn test_header_byte_qos_get() {
         let header = FixedHeader::default();
 
-        assert_eq!(header.get_qos().unwrap(), QosLevel::ExactlyOnce);
+        assert_eq!(header.get_qos().unwrap(), QosLevel::Exactly);
     }
 
     #[test]
     fn test_header_byte_qos_set() {
         let mut header = FixedHeader::default();
 
-        header.set_qos(QosLevel::AtLeastOnce);
+        header.set_qos(QosLevel::AtLeast);
 
-        assert_eq!(header.get_qos().unwrap(), QosLevel::AtLeastOnce);
+        assert_eq!(header.get_qos().unwrap(), QosLevel::AtLeast);
     }
 
     #[test]

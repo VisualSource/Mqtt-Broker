@@ -41,10 +41,30 @@ pub enum ClientEvent {
     Message(Bytes),
     Disconnect,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum ProtocalVersion {
     Four,
     Five,
     Unknown,
+}
+
+impl From<ProtocalVersion> for u8 {
+    fn from(value: ProtocalVersion) -> Self {
+        match value {
+            ProtocalVersion::Five => 5,
+            ProtocalVersion::Four => 4,
+            _ => 0,
+        }
+    }
+}
+
+impl From<u8> for ProtocalVersion {
+    fn from(value: u8) -> Self {
+        match value {
+            4 => Self::Four,
+            5 => Self::Five,
+            _ => Self::Unknown,
+        }
+    }
 }
