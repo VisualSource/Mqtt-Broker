@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use log::{debug, error, trace};
+use log::{debug, error};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt},
-    net::TcpStream,
+    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt},
     select,
     sync::mpsc::{channel, Sender},
     time::Instant,
@@ -22,24 +21,23 @@ use crate::{
     },
 };
 
-pub async fn client_handler(
-    mut stream: TcpStream,
+pub async fn client_handler<R, W>(
+    read_stream: R,
+    mut writer: W,
     message_bridge: Sender<Command>,
     cancellation: CancellationToken,
-) -> Result<(), MqttError> {
+) -> Result<(), MqttError>
+where
+    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin,
+{
     broker_info::client_inc();
-
-    debug!(
-        "Client starting from: {}",
-        stream.peer_addr().map_err(MqttError::Io)?
-    );
 
     let mut keepalive_duration: u64 = 60;
     let mut has_connected = false;
     let mut protocol = ProtocalVersion::Unknown;
     let mut cid = None;
     let keepalive_timer = tokio::time::sleep(Duration::from_secs(60));
-    let (read_stream, mut writer) = stream.split();
     let mut reader = tokio::io::BufReader::new(read_stream);
     let (tx, mut rx) = channel::<ClientEvent>(100);
 
@@ -120,7 +118,7 @@ pub async fn client_handler(
                           let len = writer.write(&resp).await?;
                           debug!("Wrote {} bytes", len);
                         },
-                        VariableHeader::Subscribe { packet_id, tuples } => {
+                        VariableHeader::Subscribe { packet_id, tuples,.. } => {
                             let id = cid.as_ref().ok_or_else(|| MqttError::FailedToGetCId)?;
                             let (r_tx, r_rx) =
                             tokio::sync::oneshot::channel::<Result<Vec<SubackReturnCode>, MqttError>>();
@@ -144,7 +142,7 @@ pub async fn client_handler(
                             let len = writer.write(&resp).await?;
                             debug!("Wrote {} bytes", len);
                         },
-                        VariableHeader::Unsubscribe { packet_id, tuples } => {
+                        VariableHeader::Unsubscribe { packet_id, tuples, .. } => {
                             let id = cid.as_ref().ok_or_else(|| MqttError::FailedToGetCId)?;
 
                             let (r_tx, r_rx) = tokio::sync::oneshot::channel::<Result<(), MqttError>>();
@@ -168,7 +166,7 @@ pub async fn client_handler(
                             let len = writer.write(&resp).await?;
                             debug!("Wrote {} bytes", len);
                         },
-                        VariableHeader::Publish { topic, packet_id, payload } => {
+                        VariableHeader::Publish { topic, packet_id, payload, .. } => {
                             message_bridge
                             .send(Command::Publish {
                                 topic,
@@ -196,24 +194,24 @@ pub async fn client_handler(
                                 debug!("Wrote {} bytes", len);
                             }
                         }
-                        VariableHeader::PubRec { packet_id } => {
+                        VariableHeader::PubRec { packet_id, .. } => {
                             let resp = Packet::make_pubrel(packet_id);
                             let len = writer.write(&resp).await?;
                             debug!("Wrote {} bytes", len);
                         },
-                        VariableHeader::PubRel { packet_id } => {
+                        VariableHeader::PubRel { packet_id, .. } => {
                             let resp = Packet::make_pubcomp(packet_id);
                             let len = writer.write(&resp).await?;
                             debug!("Wrote {} bytes", len);
                         },
-                        VariableHeader::PubComp { packet_id: _ } | VariableHeader::PubAck { packet_id: _ } => {}
+                        VariableHeader::PubComp { packet_id: _, ..} | VariableHeader::PubAck { packet_id: _, .. } => {}
                         VariableHeader::PingReq => {
                             keepalive_timer.as_mut().reset(Instant::now() + Duration::from_secs(keepalive_duration));
                             let resp = Packet::make_ping_resp();
                             let len = writer.write(&resp).await?;
                             debug!("Wrote {} bytes", len);
                         },
-                        VariableHeader::Disconnect => {
+                        VariableHeader::Disconnect { .. } => {
                             debug!("Disconnect Called");
                             let id = cid.as_ref().ok_or_else(|| MqttError::FailedToGetCId)?;
                             if message_bridge

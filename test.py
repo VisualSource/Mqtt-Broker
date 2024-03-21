@@ -1,24 +1,27 @@
-import paho.mqtt.client as mqtt
-import time
+"""
+test = {}
+def a(id: str, attr: str, v: int):
+    b = test.get(id)
+    if b is None:
+        b = {"f": 1}
+
+    b[attr] = v
+
+    test[id] = b
 
 
-def on_connect(client, userdata, flags, reason_code, properties):
-    print(
-        f"Connected with result code {reason_code} {time.time() - start_time} seconds")
-    # Subscribing in on_connect() means that if we lose the connection and
-    # reconnect then subscriptions will be renewed.
-    client.subscribe("$SYS/#")
+a("d", "f", 2)
+"""
 
 
-def on_message(client, userdata, msg):
-    print(msg.topic+" "+str(msg.payload))
+class Hello:
+    test: str
+
+    def __init__(self, test: str) -> None:
+        test = ""
+        pass
 
 
-mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-mqttc.on_connect = on_connect
-mqttc.on_message = on_message
+a = Hello("HEe")
 
-start_time = time.time()
-mqttc.connect("localhost", 1883, 60)
-
-mqttc.loop_forever()
+getattr()

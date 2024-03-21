@@ -14,6 +14,48 @@ use self::{
     utils::{encode_length, unpack_bytes, unpack_properties, unpack_string, unpack_u16},
 };
 
+#[repr(u8)]
+#[derive(Debug)]
+enum PayloadFormat {
+    Unspecified,
+    EncodedUTF8,
+}
+
+#[repr(u8)]
+#[derive(Debug)]
+enum PubRecReasonCode {
+    /// The message is accepted. Publication of the QoS 2 message proceeds.
+    Success = 0x00,
+    /// The message is accepted but there are no subscribers.
+    /// This is sent only by the Server. If the Server knows that there are no matching subscribers,
+    /// it MAY use this Reason Code instead of 0x00 (Success).
+    NoMatchingSubscribers = 0x10,
+    /// The receiver does not accept the publish but either does not want to reveal the reason, or it does not match one of the other values.
+    UnspecifiedError = 0x80,
+    /// The PUBLISH is valid but the receiver is not willing to accept it.
+    ImplementationSpecificError = 0x83,
+    /// The PUBLISH is not authorized.
+    NotAuthorized = 0x87,
+    /// The Topic Name is not malformed, but is not accepted by this Client or Server.
+    TopicNameInvalid = 0x90,
+    /// The Packet Identifier is already in use. This might indicate a mismatch in the Session State between the Client and Server.
+    PacketIdentifierInUse = 0x91,
+    /// An implementation or administrative imposed limit has been exceeded.
+    QuotaExceeded = 0x97,
+    /// The payload format does not match the one specified in the Payload Format Indicator.
+    PayloadFormatInvalid = 0x99,
+}
+
+#[repr(u8)]
+#[derive(Debug)]
+enum PubReasonCode {
+    /// Message released.
+    Success = 0x00,
+    /// The Packet Identifier is not known. This is not an error during recovery,
+    /// but at other times indicates a mismatch between the Session State on the Client and Server.
+    PacketIdentifierNotFound = 0x92,
+}
+
 pub mod enums;
 mod headers;
 mod utils;
@@ -34,54 +76,133 @@ pub enum VariableHeader {
         protocol_version: ProtocalVersion,
 
         session_expiry_interval: Option<u32>,
-        receive_maximum: u16,
+        receive_maximum: Option<u16>,
         maximum_packet_size: Option<u32>,
-        topic_alias_maximum: u16,
-        request_response_info: bool,
-        request_problem_info: bool,
-        user_properties: Vec<(String, String)>,
+        topic_alias_maximum: Option<u16>,
+        request_response_info: Option<bool>,
+        request_problem_info: Option<bool>,
+        user_properties: Option<Vec<(String, String)>>,
         auth_method: Option<String>,
         auth_data: Option<Bytes>,
     },
     ConnAck {
         acknowledge_flags: AcknowledgeFlags,
         return_code: ConnectReturnCode,
+        // Start V5 data
+        session_expiry_interval: Option<u32>,
+        receive_maximum: Option<u16>,
+        maximum_qos: Option<QosLevel>,
+        retain_available: Option<bool>,
+        maximum_packet_size: Option<u32>,
+        assigned_client_identifier: Option<String>,
+        topic_alias_maximum: Option<u16>,
+        reason_string: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
+        wildcard_subscription_available: Option<bool>,
+        subscription_identifiers_available: Option<bool>,
+        shared_subscription_available: Option<bool>,
+        server_keep_alive: Option<u16>,
+        response_inormation: Option<String>,
+        server_refernce: Option<String>,
+        authentication_method: Option<String>,
+        authentication_data: Option<Bytes>,
     },
     Subscribe {
+        // Header
         packet_id: u16,
+        // Properties
+        subscription_identifier: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
+        // payload
+        // V4 (topic,qos)
+        // V5 (topic, (Retain,RAP,NL,QOS))
         tuples: Vec<(String, QosLevel)>,
     },
     Unsubscribe {
         packet_id: u16,
+
+        user_property: Option<Vec<(String, String)>>,
+
         tuples: Vec<String>,
     },
     Publish {
+        // The Topic Name MUST be present as the first field in the PUBLISH packet Variable Header. It MUST be a UTF-8 Encoded String
+        // The Topic Name in the PUBLISH packet MUST NOT contain wildcard characters
         topic: String,
         packet_id: Option<u16>,
+        // Start V5 Props
+        payload_format_indicator: Option<PayloadFormat>,
+        message_expiry_interval: Option<u32>,
+        topic_alias: Option<u16>,
+        response_topic: Option<String>,
+        correlation_data: Option<Bytes>,
+        user_property: Option<Vec<(String, String)>>,
+        subscription_identifier: Option<u32>,
+        content_type: Option<String>,
+        // End V5 Props
         payload: Bytes,
     },
     SubAck {
+        // V4
         packet_id: u16,
+        // V5
+        reason_string: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
+
         return_codes: Vec<SubackReturnCode>,
     },
     PubAck {
         packet_id: u16,
+        reason_string: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
     },
     PubRec {
+        // Variable Header
         packet_id: u16,
+        reason_code: PubRecReasonCode, // V5
+        // Properties
+        reason_string: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
+        // Payload
     },
     PubRel {
+        // Variable Header
         packet_id: u16,
+        reason_code: PubReasonCode,
+
+        reason_string: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
     },
     PubComp {
         packet_id: u16,
+        reason_code: PubReasonCode,
+
+        reason_string: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
     },
     UnsubAck {
         packet_id: u16,
+        reason_string: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
+
+        reason_codes: Vec<u8>,
     },
     PingReq,
     PingResp,
-    Disconnect,
+    Disconnect {
+        reason_code: u8,
+        session_expiry_interval: Option<u32>,
+        reason_string: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
+        server_reference: Option<String>,
+    },
+    Auth {
+        reason_code: u8,
+        authentication_method: Option<String>,
+        authentication_data: Option<Bytes>,
+        reason_string: Option<String>,
+        user_property: Option<Vec<(String, String)>>,
+    },
 }
 
 impl VariableHeader {
@@ -148,11 +269,14 @@ impl VariableHeader {
             VariableHeader::ConnAck {
                 acknowledge_flags,
                 return_code,
+                ..
             } => {
                 bytes.put_u8(acknowledge_flags.into());
                 bytes.put_u8(return_code.into());
             }
-            VariableHeader::Subscribe { packet_id, tuples } => {
+            VariableHeader::Subscribe {
+                packet_id, tuples, ..
+            } => {
                 bytes.put_u16(packet_id);
                 for (topic, qos) in tuples {
                     bytes.put_u16(topic.len() as u16);
@@ -160,7 +284,9 @@ impl VariableHeader {
                     bytes.put_u8(qos.into());
                 }
             }
-            VariableHeader::Unsubscribe { packet_id, tuples } => {
+            VariableHeader::Unsubscribe {
+                packet_id, tuples, ..
+            } => {
                 bytes.put_u16(packet_id);
 
                 for x in tuples {
@@ -172,6 +298,7 @@ impl VariableHeader {
                 topic,
                 packet_id,
                 payload,
+                ..
             } => {
                 bytes.put_u16(topic.len() as u16);
                 bytes.put(topic.as_bytes());
@@ -185,21 +312,24 @@ impl VariableHeader {
             VariableHeader::SubAck {
                 packet_id,
                 return_codes,
+                ..
             } => {
                 bytes.put_u16(packet_id);
                 for code in return_codes {
                     bytes.put_u8(code.into());
                 }
             }
-            VariableHeader::UnsubAck { packet_id }
-            | VariableHeader::PubComp { packet_id }
-            | VariableHeader::PubRel { packet_id }
-            | VariableHeader::PubRec { packet_id }
-            | VariableHeader::PubAck { packet_id } => {
+            VariableHeader::Disconnect { .. } => {}
+            VariableHeader::Auth { .. } => {}
+            VariableHeader::UnsubAck { packet_id, .. }
+            | VariableHeader::PubComp { packet_id, .. }
+            | VariableHeader::PubRel { packet_id, .. }
+            | VariableHeader::PubRec { packet_id, .. }
+            | VariableHeader::PubAck { packet_id, .. } => {
                 bytes.put_u16(packet_id);
             }
 
-            VariableHeader::Disconnect | VariableHeader::PingReq | VariableHeader::PingResp => {}
+            VariableHeader::PingReq | VariableHeader::PingResp => {}
         }
 
         bytes.freeze()
@@ -214,6 +344,8 @@ impl VariableHeader {
     {
         match fixed.get_packet_type()? {
             PacketType::Connect => {
+                //  ===== Start Connect header =======
+
                 let protocal_name = unpack_string(iter)?;
                 if &protocal_name != "MQTT" {
                     return Err(MqttError::UnknownProtocol);
@@ -226,7 +358,7 @@ impl VariableHeader {
                 );
 
                 if protocol_version != ProtocalVersion::Four
-                /*|| connect_header.protocal_version != 5*/
+                    || protocol_version != ProtocalVersion::Five
                 {
                     return Err(MqttError::UnacceptableProtocolLevel);
                 }
@@ -242,9 +374,14 @@ impl VariableHeader {
 
                 let keepalive = unpack_u16(iter)?;
 
-                if protocol_version == ProtocalVersion::Five {
-                    let props = unpack_properties(iter)?;
-                }
+                let props = if protocol_version == ProtocalVersion::Five {
+                    Some(unpack_properties(iter)?)
+                } else {
+                    None
+                };
+
+                //  ===== End Connect header =======
+                //  ===== Start Connect Payload =====
 
                 let client_id = {
                     let id = unpack_string(iter)?;
@@ -259,22 +396,19 @@ impl VariableHeader {
                     }
                 };
 
-                let (will_topic, will_message) = if flags.will() {
-                    if protocol_version == ProtocalVersion::Five {
-                        todo!("Implement Variable string header");
+                let (will_topic, will_message, will_props) = if flags.will() {
+                    let props = if protocol_version == ProtocalVersion::Five {
+                        Some(unpack_properties(iter)?)
+                    } else {
+                        None
+                    };
 
-                        // Will Delay interval
-                        // Payload Format undicator
-                        // Message Expiry Interval
-                        // Content Type
-                        // Response Topic
-                        // Correlation Data
-                        // User Property
-                    }
+                    let will_topic = unpack_string(iter)?;
+                    let will_payload = unpack_string(iter)?;
 
-                    (Some(unpack_string(iter)?), Some(unpack_string(iter)?))
+                    (Some(will_topic), Some(will_payload), props)
                 } else {
-                    (None, None)
+                    (None, None, None)
                 };
 
                 let username = if flags.has_username() {
@@ -299,12 +433,12 @@ impl VariableHeader {
                     will_message,
                     protocol_version,
                     session_expiry_interval: None,
-                    receive_maximum: 0,
+                    receive_maximum: None,
                     maximum_packet_size: None,
-                    topic_alias_maximum: 0,
-                    request_response_info: true,
-                    request_problem_info: true,
-                    user_properties: Vec::default(),
+                    topic_alias_maximum: None,
+                    request_response_info: None,
+                    request_problem_info: None,
+                    user_properties: None,
                     auth_method: None,
                     auth_data: None,
                 })
@@ -319,6 +453,23 @@ impl VariableHeader {
                 Ok(Self::ConnAck {
                     acknowledge_flags: flags,
                     return_code: rc,
+                    session_expiry_interval: None,
+                    receive_maximum: None,
+                    maximum_qos: None,
+                    retain_available: None,
+                    maximum_packet_size: None,
+                    assigned_client_identifier: None,
+                    topic_alias_maximum: None,
+                    reason_string: None,
+                    user_property: None,
+                    wildcard_subscription_available: None,
+                    subscription_identifiers_available: None,
+                    shared_subscription_available: None,
+                    server_keep_alive: None,
+                    response_inormation: None,
+                    server_refernce: None,
+                    authentication_method: None,
+                    authentication_data: None,
                 })
             }
             PacketType::Publish => {
@@ -346,23 +497,50 @@ impl VariableHeader {
                     topic,
                     packet_id,
                     payload,
+                    payload_format_indicator: None,
+                    message_expiry_interval: None,
+                    topic_alias: None,
+                    response_topic: None,
+                    correlation_data: None,
+                    user_property: None,
+                    subscription_identifier: None,
+                    content_type: None,
                 })
             }
             PacketType::Puback => {
                 let id = unpack_u16(iter)?;
-                Ok(Self::PubAck { packet_id: id })
+                Ok(Self::PubAck {
+                    packet_id: id,
+                    reason_string: None,
+                    user_property: None,
+                })
             }
             PacketType::Pubrec => {
                 let id = unpack_u16(iter)?;
-                Ok(Self::PubRec { packet_id: id })
+                Ok(Self::PubRec {
+                    packet_id: id,
+                    reason_code: PubRecReasonCode::Success,
+                    reason_string: None,
+                    user_property: None,
+                })
             }
             PacketType::Pubrel => {
                 let id = unpack_u16(iter)?;
-                Ok(Self::PubRel { packet_id: id })
+                Ok(Self::PubRel {
+                    packet_id: id,
+                    reason_code: PubReasonCode::Success,
+                    reason_string: None,
+                    user_property: None,
+                })
             }
             PacketType::Pubcomp => {
                 let id = unpack_u16(iter)?;
-                Ok(Self::PubComp { packet_id: id })
+                Ok(Self::PubComp {
+                    packet_id: id,
+                    reason_code: PubReasonCode::Success,
+                    reason_string: None,
+                    user_property: None,
+                })
             }
             PacketType::Subscribe => {
                 if !fixed.get_dup() && fixed.get_qos()? != QosLevel::AtLeast && fixed.get_retain() {
@@ -400,7 +578,12 @@ impl VariableHeader {
                     return Err(MqttError::ProtocolViolation);
                 }
 
-                Ok(Self::Subscribe { packet_id, tuples })
+                Ok(Self::Subscribe {
+                    packet_id,
+                    tuples,
+                    subscription_identifier: None,
+                    user_property: None,
+                })
             }
             PacketType::Suback => {
                 let packet_id = unpack_u16(iter)?;
@@ -419,6 +602,8 @@ impl VariableHeader {
                 Ok(Self::SubAck {
                     packet_id,
                     return_codes,
+                    reason_string: None,
+                    user_property: None,
                 })
             }
             PacketType::Unsubscribe => {
@@ -436,16 +621,37 @@ impl VariableHeader {
                     tuples.push(topic);
                 }
 
-                Ok(Self::Unsubscribe { packet_id, tuples })
+                Ok(Self::Unsubscribe {
+                    packet_id,
+                    tuples,
+                    user_property: None,
+                })
             }
             PacketType::Unsuback => {
                 let id = unpack_u16(iter)?;
-                Ok(Self::UnsubAck { packet_id: id })
+                Ok(Self::UnsubAck {
+                    packet_id: id,
+                    reason_string: None,
+                    user_property: None,
+                    reason_codes: Vec::default(),
+                })
             }
             PacketType::PingReq => Ok(Self::PingReq),
             PacketType::PingResp => Ok(Self::PingResp),
-            PacketType::Disconnect => Ok(Self::Disconnect),
-            PacketType::Auth => todo!(),
+            PacketType::Disconnect => Ok(Self::Disconnect {
+                reason_code: 0,
+                session_expiry_interval: None,
+                reason_string: None,
+                user_property: None,
+                server_reference: None,
+            }),
+            PacketType::Auth => Ok(Self::Auth {
+                reason_code: 0,
+                authentication_method: None,
+                authentication_data: None,
+                reason_string: None,
+                user_property: None,
+            }),
         }
     }
 }
@@ -477,6 +683,14 @@ impl Packet {
                 topic,
                 packet_id,
                 payload,
+                payload_format_indicator: None,
+                message_expiry_interval: None,
+                topic_alias: None,
+                response_topic: None,
+                correlation_data: None,
+                user_property: None,
+                subscription_identifier: None,
+                content_type: None,
             },
         }
         .pack()
@@ -484,35 +698,59 @@ impl Packet {
     pub fn make_pubcomp(packet_id: u16) -> Bytes {
         Self {
             fixed: FixedHeader::new(PacketType::Pubcomp, false, QosLevel::AtMost, false, 0),
-            variable: VariableHeader::PubComp { packet_id },
+            variable: VariableHeader::PubComp {
+                packet_id,
+                reason_code: PubReasonCode::Success,
+                reason_string: None,
+                user_property: None,
+            },
         }
         .pack()
     }
     pub fn make_pubrel(packet_id: u16) -> Bytes {
         Self {
             fixed: FixedHeader::new(PacketType::Pubrel, false, QosLevel::AtLeast, false, 0),
-            variable: VariableHeader::PubRel { packet_id },
+            variable: VariableHeader::PubRel {
+                packet_id,
+                reason_code: PubReasonCode::Success,
+                reason_string: None,
+                user_property: None,
+            },
         }
         .pack()
     }
     pub fn make_pubrec(packet_id: u16) -> Bytes {
         Self {
             fixed: FixedHeader::new(PacketType::Pubrec, false, QosLevel::AtMost, false, 0),
-            variable: VariableHeader::PubRec { packet_id },
+            variable: VariableHeader::PubRec {
+                packet_id,
+                reason_code: PubRecReasonCode::Success,
+                reason_string: None,
+                user_property: None,
+            },
         }
         .pack()
     }
     pub fn make_puback(packet_id: u16) -> Bytes {
         Self {
             fixed: FixedHeader::new(PacketType::Puback, false, QosLevel::AtMost, false, 0),
-            variable: VariableHeader::PubAck { packet_id },
+            variable: VariableHeader::PubAck {
+                packet_id,
+                reason_string: None,
+                user_property: None,
+            },
         }
         .pack()
     }
     pub fn make_unsuback(packet_id: u16) -> Bytes {
         Self {
             fixed: FixedHeader::new(PacketType::Unsuback, false, QosLevel::AtMost, false, 0),
-            variable: VariableHeader::UnsubAck { packet_id },
+            variable: VariableHeader::UnsubAck {
+                packet_id,
+                reason_string: None,
+                user_property: None,
+                reason_codes: Vec::default(),
+            },
         }
         .pack()
     }
@@ -529,6 +767,8 @@ impl Packet {
             variable: VariableHeader::SubAck {
                 packet_id,
                 return_codes: rc,
+                reason_string: None,
+                user_property: None,
             },
         }
         .pack()
@@ -539,6 +779,23 @@ impl Packet {
             variable: VariableHeader::ConnAck {
                 acknowledge_flags: AcknowledgeFlags::new(session_present),
                 return_code: rc,
+                session_expiry_interval: None,
+                receive_maximum: None,
+                maximum_qos: None,
+                retain_available: None,
+                maximum_packet_size: None,
+                assigned_client_identifier: None,
+                topic_alias_maximum: None,
+                reason_string: None,
+                user_property: None,
+                wildcard_subscription_available: None,
+                subscription_identifiers_available: None,
+                shared_subscription_available: None,
+                server_keep_alive: None,
+                response_inormation: None,
+                server_refernce: None,
+                authentication_method: None,
+                authentication_data: None,
             },
         }
         .pack()
@@ -655,6 +912,14 @@ mod tests {
             packet_id,
             payload,
             topic,
+            payload_format_indicator,
+            message_expiry_interval,
+            topic_alias,
+            response_topic,
+            correlation_data,
+            user_property,
+            subscription_identifier,
+            content_type,
         } = packet.variable
         {
             assert_eq!(packet.fixed.get_remaing_len(), 14);
@@ -694,7 +959,13 @@ mod tests {
         let (packet, _) =
             Packet::unpack(&data, ProtocalVersion::Four).expect("Failed to parse connect packet");
 
-        if let VariableHeader::Subscribe { packet_id, tuples } = packet.variable {
+        if let VariableHeader::Subscribe {
+            packet_id,
+            tuples,
+            subscription_identifier,
+            user_property,
+        } = packet.variable
+        {
             assert_eq!(packet.fixed.get_remaing_len(), 12);
 
             assert_eq!(packet_id, 1);
@@ -719,7 +990,12 @@ mod tests {
         let (packet, _) =
             Packet::unpack(&data, ProtocalVersion::Four).expect("Failed to parse connect packet");
 
-        if let VariableHeader::Unsubscribe { packet_id, tuples } = packet.variable {
+        if let VariableHeader::Unsubscribe {
+            packet_id,
+            tuples,
+            user_property,
+        } = packet.variable
+        {
             assert_eq!(packet.fixed.get_remaing_len(), 8, "remaing packet length");
 
             assert_eq!(packet_id, 1);
@@ -760,12 +1036,12 @@ mod tests {
             will_message: None,
             protocol_version: ProtocalVersion::Four,
             session_expiry_interval: None,
-            receive_maximum: 0,
+            receive_maximum: None,
             maximum_packet_size: None,
-            topic_alias_maximum: 0,
-            request_response_info: false,
-            request_problem_info: false,
-            user_properties: Vec::default(),
+            topic_alias_maximum: None,
+            request_response_info: None,
+            request_problem_info: None,
+            user_properties: None,
             auth_method: None,
             auth_data: None,
         };
@@ -827,6 +1103,8 @@ mod tests {
         let v = VariableHeader::Subscribe {
             packet_id: 1,
             tuples: vec![("mytopic".into(), QosLevel::AtLeast)],
+            subscription_identifier: None,
+            user_property: None,
         };
 
         let packet = Packet::new(header, v).pack();
@@ -856,6 +1134,7 @@ mod tests {
         let v = VariableHeader::Unsubscribe {
             packet_id: 1,
             tuples: vec!["info".into()],
+            user_property: None,
         };
 
         let packet = Packet::new(header, v).pack();

@@ -10,13 +10,14 @@ use crate::{
     },
 };
 use log::{debug, info};
-use tokio::{net::TcpListener, select, sync::mpsc::channel};
+use tokio::{select, sync::mpsc::channel};
 
 use tokio_util::sync::CancellationToken;
 
 pub async fn listen(config: Config) -> Result<(), MqttError> {
     info!("Starting MQTT Broker at: {}", config.socket_addr);
-    let listener = TcpListener::bind(config.socket_addr)
+
+    let listener = tokio::net::TcpListener::bind(config.socket_addr)
         .await
         .map_err(MqttError::Io)?;
 
@@ -221,12 +222,13 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
     loop {
         select! {
             res = listener.accept() => {
-                if let Ok((stream,_)) = res {
-                    log::debug!("Connection Start");
+                if let Ok((stream,addr)) = res {
+                    log::debug!("Connection Start: {:?}",addr);
                     let cancellation = token.clone();
                     let message_brige = tx.clone();
                     tracker.spawn(async move {
-                        if let Err(err) = client_handler(stream,message_brige,cancellation).await {
+                        let (reader, writer) = tokio::io::split(stream);
+                        if let Err(err) = client_handler(reader,writer,message_brige,cancellation).await {
                            log::error!("{}", err);
                         }
                         log::debug!("Exited TCP handler");
