@@ -3,7 +3,7 @@ use config::ConfigBuilder;
 mod config;
 mod core;
 mod error;
-mod handlers;
+mod handler;
 mod listener;
 mod packets;
 
@@ -22,8 +22,13 @@ mod packets;
 // https://c-for-dummies.com/blog/?p=1848
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() {
+    #[cfg(debug_assertions)]
+    {
+        console_subscriber::init();
+    }
+
     env_logger::Builder::new()
-        .filter(None, log::LevelFilter::Debug)
+        .filter(None, log::LevelFilter::Error)
         .init();
 
     let config = ConfigBuilder::new()

@@ -11,13 +11,11 @@ use crate::{
 use self::{
     enums::{ConnectReturnCode, QosLevel, SubackReturnCode},
     headers::{connack::AcknowledgeFlags, connect::Flags},
-    traits::FromBytes,
     utils::{encode_length, unpack_bytes, unpack_properties, unpack_string, unpack_u16},
 };
 
 pub mod enums;
 mod headers;
-mod traits;
 mod utils;
 
 #[derive(Debug)]
@@ -206,7 +204,11 @@ impl VariableHeader {
 
         bytes.freeze()
     }
-    fn unpack<'a, I>(iter: &mut I, fixed: &FixedHeader) -> Result<Self, MqttError>
+    fn unpack<'a, I>(
+        iter: &mut I,
+        fixed: &FixedHeader,
+        _protocal: ProtocalVersion,
+    ) -> Result<Self, MqttError>
     where
         I: Iterator<Item = &'a u8>,
     {
@@ -555,12 +557,15 @@ impl Packet {
 
         buffer.freeze()
     }
-    pub fn unpack(bytes: &[u8]) -> Result<Self, MqttError> {
+    pub fn unpack(bytes: &[u8], protocal: ProtocalVersion) -> Result<(Self, usize), MqttError> {
         let mut iter = bytes.iter();
 
         let fixed = FixedHeader::from_bytes(&mut iter, None)?;
-        let variable = VariableHeader::unpack(&mut iter, &fixed)?;
-        Ok(Self { fixed, variable })
+
+        let len = fixed.get_remaing_len() + fixed.get_rl_len() + 1;
+
+        let variable = VariableHeader::unpack(&mut iter, &fixed, protocal)?;
+        Ok((Self { fixed, variable }, len))
     }
 }
 
@@ -574,7 +579,7 @@ mod tests {
     // https://cedalo.com/blog/mqtt-packet-guide/
     #[test]
     fn test_unpack_connect_packet() {
-        let mut data = vec![
+        let data = vec![
             0x10, // Fixed Header
             0x1e, // Length
             0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, // MQTT
@@ -587,7 +592,8 @@ mod tests {
             0x00, 0x04, 0x70, 0x61, 0x73, 0x73, // Password with length (4,"pass")
         ];
 
-        let packet = Packet::unpack(&mut data).expect("Failed to parse connect packet");
+        let (packet, _) =
+            Packet::unpack(&data, ProtocalVersion::Four).expect("Failed to parse connect packet");
 
         if let VariableHeader::Connect {
             flags,
@@ -642,7 +648,8 @@ mod tests {
             0x43, 0x65, 0x64, 0x61, 0x6c, 0x6f, // Message "Cedalo"
         ];
 
-        let packet = Packet::unpack(&data).expect("Failed to parse connect packet");
+        let (packet, _) =
+            Packet::unpack(&data, ProtocalVersion::Four).expect("Failed to parse connect packet");
 
         if let VariableHeader::Publish {
             packet_id,
@@ -684,7 +691,8 @@ mod tests {
             0x01, // Qos
         ];
 
-        let packet = Packet::unpack(&data).expect("Failed to parse connect packet");
+        let (packet, _) =
+            Packet::unpack(&data, ProtocalVersion::Four).expect("Failed to parse connect packet");
 
         if let VariableHeader::Subscribe { packet_id, tuples } = packet.variable {
             assert_eq!(packet.fixed.get_remaing_len(), 12);
@@ -708,7 +716,8 @@ mod tests {
             0x00, 0x04, 0x69, 0x6e, 0x66, 0x6f, // string "info"
         ];
 
-        let packet = Packet::unpack(&data).expect("Failed to parse connect packet");
+        let (packet, _) =
+            Packet::unpack(&data, ProtocalVersion::Four).expect("Failed to parse connect packet");
 
         if let VariableHeader::Unsubscribe { packet_id, tuples } = packet.variable {
             assert_eq!(packet.fixed.get_remaing_len(), 8, "remaing packet length");

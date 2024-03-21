@@ -12,7 +12,7 @@ pub enum Command {
     RegisterClient {
         id: String,
         message_channel: Receiver<ClientEvent>,
-        protocal: ProtocalVersion,
+        protocol: ProtocalVersion,
         clean_session: bool,
         callback: Responder<Result<(), MqttError>>,
     },

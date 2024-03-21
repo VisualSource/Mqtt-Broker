@@ -107,13 +107,13 @@ where
 {
     let mut multiplier: usize = 1;
     let mut value = 0;
-    let mut len = 0;
+    let mut bytes = 0;
     loop {
         let byte = iter
             .next()
             .ok_or_else(|| MqttError::RequiredByteMissing("Missing variable length byte"))?;
 
-        len += 1;
+        bytes += 1;
 
         value += ((byte & 127) as usize) * multiplier;
 
@@ -128,7 +128,7 @@ where
         }
     }
 
-    Ok((value, len))
+    Ok((value, bytes))
 }
 
 pub fn encode_length(len: usize, bytes: &mut BytesMut) {

@@ -4,7 +4,6 @@ use crate::{
     error::MqttError,
     packets::{
         enums::{PacketType, QosLevel},
-        traits::FromBytes,
         utils::decode_length,
     },
 };
@@ -65,6 +64,9 @@ pub struct FixedHeader {
     /// [MQTT 3.1.1](http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html#_Toc442180836)
     /// [MQTT 5](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901024)
     remaining_len: usize,
+
+    /// how many bytes are used to represent the remaing length of the packet.
+    remaining_length_bytes: usize,
 }
 
 impl FixedHeader {
@@ -101,6 +103,7 @@ impl FixedHeader {
         Self {
             flags: bit,
             remaining_len: len,
+            remaining_length_bytes: 0,
         }
     }
 
@@ -108,7 +111,7 @@ impl FixedHeader {
         buf.put_u8(self.flags);
     }
 
-    pub fn set_packet_type(&mut self, value: PacketType) {
+    /*pub fn set_packet_type(&mut self, value: PacketType) {
         self.flags &= !(0xF0 << 4);
         self.flags |= (value as u8) << 4;
     }
@@ -123,7 +126,7 @@ impl FixedHeader {
     pub fn set_retain(&mut self, value: bool) {
         self.flags &= !(1 << 0);
         self.flags |= value as u8
-    }
+    }*/
     pub fn get_packet_type(&self) -> Result<PacketType, MqttError> {
         let data = (self.flags & 0xF0) >> 4;
         PacketType::try_from(data)
@@ -141,14 +144,31 @@ impl FixedHeader {
     pub fn get_remaing_len(&self) -> usize {
         self.remaining_len
     }
-    pub fn set_remain_len(&mut self, value: usize) {
-        self.remaining_len = value;
+    pub fn get_rl_len(&self) -> usize {
+        self.remaining_length_bytes
+    }
+    pub fn from_bytes<'a, I>(iter: &mut I, _: Option<&FixedHeader>) -> Result<Self, MqttError>
+    where
+        I: Iterator<Item = &'a u8>,
+    {
+        let mut header = FixedHeader::from(
+            *iter
+                .next()
+                .ok_or_else(|| MqttError::RequiredByteMissing("Missing Fixed header byte"))?,
+        );
+
+        let (len, bytes) = decode_length(iter)?;
+        header.remaining_len = len;
+        header.remaining_length_bytes = bytes;
+
+        Ok(header)
     }
 }
 
 impl From<u8> for FixedHeader {
     fn from(value: u8) -> Self {
         Self {
+            remaining_length_bytes: 0,
             flags: value,
             remaining_len: 0,
         }
@@ -172,29 +192,10 @@ impl Default for FixedHeader {
         bit |= (PacketType::Puback as u8) << 4;
 
         Self {
+            remaining_length_bytes: 0,
             flags: bit,
             remaining_len: Default::default(),
         }
-    }
-}
-
-impl FromBytes for FixedHeader {
-    type Output = FixedHeader;
-
-    fn from_bytes<'a, I>(iter: &mut I, _: Option<&FixedHeader>) -> Result<Self::Output, MqttError>
-    where
-        I: Iterator<Item = &'a u8>,
-    {
-        let mut header = FixedHeader::from(
-            *iter
-                .next()
-                .ok_or_else(|| MqttError::RequiredByteMissing("Missing Fixed header byte"))?,
-        );
-
-        let len = decode_length(iter)?.0;
-        header.set_remain_len(len);
-
-        Ok(header)
     }
 }
 
@@ -234,9 +235,7 @@ mod tests {
 
     #[test]
     fn test_header_byte_retain_set() {
-        let mut header = FixedHeader::default();
-
-        header.set_retain(false);
+        let header = FixedHeader::new(PacketType::Disconnect, false, QosLevel::AtMost, false, 0);
 
         assert!(!header.get_retain());
     }
@@ -250,9 +249,7 @@ mod tests {
 
     #[test]
     fn test_header_byte_qos_set() {
-        let mut header = FixedHeader::default();
-
-        header.set_qos(QosLevel::AtLeast);
+        let header = FixedHeader::new(PacketType::Disconnect, false, QosLevel::AtLeast, false, 0);
 
         assert_eq!(header.get_qos().unwrap(), QosLevel::AtLeast);
     }
@@ -265,9 +262,7 @@ mod tests {
 
     #[test]
     fn test_header_byte_dup_set() {
-        let mut header = FixedHeader::default();
-
-        header.set_dup(false);
+        let header = FixedHeader::new(PacketType::Disconnect, false, QosLevel::AtLeast, false, 0);
 
         assert!(!header.get_dup());
     }
@@ -280,9 +275,7 @@ mod tests {
 
     #[test]
     fn test_header_byte_ptype_set() {
-        let mut header = FixedHeader::default();
-
-        header.set_packet_type(PacketType::Disconnect);
+        let header = FixedHeader::new(PacketType::Disconnect, false, QosLevel::AtLeast, false, 0);
 
         assert_eq!(header.get_packet_type().unwrap(), PacketType::Disconnect);
     }

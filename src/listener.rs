@@ -1,13 +1,7 @@
 use crate::config::Config;
 use crate::core::{broker_info, enums::Command, App};
 use crate::error::MqttError;
-use crate::handlers::client_handler;
-use bytes::Bytes;
-use log::{debug, info};
-use std::time::Duration;
-use tokio::{net::TcpListener, select, sync::mpsc::channel};
-use tokio_util::sync::CancellationToken;
-
+use crate::handler::client_handler;
 use crate::{
     core::enums::ClientEvent,
     packets::{
@@ -15,6 +9,10 @@ use crate::{
         Packet,
     },
 };
+use log::{debug, info};
+use tokio::{net::TcpListener, select, sync::mpsc::channel};
+
+use tokio_util::sync::CancellationToken;
 
 pub async fn listen(config: Config) -> Result<(), MqttError> {
     info!("Starting MQTT Broker at: {}", config.socket_addr);
@@ -34,7 +32,7 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                 Command::RegisterClient {
                     id,
                     message_channel,
-                    protocal: _,
+                    protocol: _,
                     clean_session,
                     callback,
                 } => {
@@ -112,18 +110,19 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
                     debug!("Publish topic: {}", topic);
                     for (target, qos) in targets {
                         broker_info::sent_published();
-                        /*if let Ok(packet) = Packet::make_publish(
+
+                        let packet = Packet::make_publish(
                             false,
                             *qos,
                             false,
                             topic.clone(),
                             None,
                             payload.clone(),
-                        ) {
-                            if let Err(e) = target.send(ClientEvent::Message(packet)).await {
-                                log::error!("receiver dropped: {}", e);
-                            }
-                        }*/
+                        );
+
+                        if let Err(e) = target.send(ClientEvent::Message(packet)).await {
+                            log::error!("receiver dropped: {}", e);
+                        }
                     }
                 }
                 Command::Unsubscribe {
@@ -219,37 +218,34 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
         });
     }*/
 
-    select! {
-        _ = async {
-            loop {
-                match listener.accept().await {
-                    Ok((stream, _)) => {
-                        let cancellation = token.clone();
-                        let message_brige = tx.clone();
-                        tracker.spawn(async move {
-                            if let Err(err) = client_handler(stream,message_brige,cancellation).await {
-                               log::error!("{}", err);
-                            }
-                            log::debug!("Exited TCP handler");
-                        });
-                    }
-                    Err(err) => {
-                        log::error!("{}", err);
-                    }
+    loop {
+        select! {
+            res = listener.accept() => {
+                if let Ok((stream,_)) = res {
+                    let cancellation = token.clone();
+                    let message_brige = tx.clone();
+                    tracker.spawn(async move {
+                        if let Err(err) = client_handler(stream,message_brige,cancellation).await {
+                           log::error!("{}", err);
+                        }
+                        log::debug!("Exited TCP handler");
+                    });
                 }
             }
-        } => {}
-        _ = tokio::signal::ctrl_c() => {
-            log::info!("Exiting");
-            if tx.send(Command::Exit).await.is_err(){
-                log::error!("Failed to exit message loop");
+            _ = tokio::signal::ctrl_c() => {
+                break;
             }
-            token.cancel();
-            tracker.close();
-
-            tracker.wait().await;
         }
     }
+
+    log::info!("Exiting");
+    if tx.send(Command::Exit).await.is_err() {
+        log::error!("Failed to exit message loop");
+    }
+    token.cancel();
+    tracker.close();
+
+    tracker.wait().await;
 
     Ok(())
 }
