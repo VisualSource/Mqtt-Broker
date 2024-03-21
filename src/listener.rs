@@ -222,6 +222,7 @@ pub async fn listen(config: Config) -> Result<(), MqttError> {
         select! {
             res = listener.accept() => {
                 if let Ok((stream,_)) = res {
+                    log::debug!("Connection Start");
                     let cancellation = token.clone();
                     let message_brige = tx.clone();
                     tracker.spawn(async move {

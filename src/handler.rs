@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use log::{debug, error};
+use log::{debug, error, trace};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt},
     net::TcpStream,
