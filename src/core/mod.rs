@@ -3,7 +3,11 @@ use std::collections::HashMap;
 use log::error;
 use tokio::sync::mpsc::Sender;
 
-use crate::{error::MqttError, packets::enums::QosLevel};
+use crate::{
+    error::MqttError,
+    packets::enums::{QosLevel, SubackReturnCode},
+    topic_heir::{SubscriptionLeaf, SubscriptionTree},
+};
 
 use self::{
     client::Client,
@@ -20,15 +24,45 @@ mod topic;
 
 pub struct App {
     clients: HashMap<String, Client>,
-    topics: Topics,
+    subscriptions: SubscriptionTree,
 }
 
 impl App {
     pub fn new() -> Self {
         Self {
             clients: HashMap::new(),
-            topics: Topics::new(),
+            subscriptions: SubscriptionTree::new(),
         }
+    }
+
+    pub fn subscribers(
+        &self,
+        topic: String,
+    ) -> Result<Vec<(u128, Sender<ClientEvent>, QosLevel)>, u8> {
+        self.subscriptions.get(topic)
+    }
+
+    pub fn subscribe(
+        &mut self,
+        topic: String,
+        qos: QosLevel,
+        id: u128,
+        bridge: Sender<ClientEvent>,
+    ) -> SubackReturnCode {
+        let leaf = SubscriptionLeaf::new(qos, id, bridge, false, false);
+
+        if let Err(e) = self.subscriptions.insert(topic, leaf) {
+            return SubackReturnCode::Failure;
+        }
+
+        match qos {
+            QosLevel::AtMost => SubackReturnCode::SuccessQosZero,
+            QosLevel::AtLeast => SubackReturnCode::SuccessQosOne,
+            QosLevel::Exactly => SubackReturnCode::SuccessQosTwo,
+        }
+    }
+    pub fn unsubscribe(&mut self, topic: String, client: u128) -> Result<(), u8> {
+        self.subscriptions.delete(topic, client)
     }
 
     pub async fn disconnect_client(&self, cid: &String) {
@@ -37,10 +71,6 @@ impl App {
                 error!("{}", e);
             }
         }
-    }
-
-    pub fn get_matches(&self, topic: &str) -> Vec<&Subscriber> {
-        self.topics.get_matches(topic)
     }
 
     pub fn clear_client_session(&mut self, cid: &String) {
@@ -73,30 +103,10 @@ impl App {
 
     pub fn remove_client(&mut self, cid: &String) {
         if let Some(client) = self.clients.get(cid) {
-            for sub in &client.session.subscriptions {
-                self.topics.unsubscribe(cid, &sub.0);
-            }
+            for sub in &client.session.subscriptions {}
 
             self.clients.remove(cid);
         }
-    }
-
-    pub fn add_subscriber_to_topic(
-        &mut self,
-        topic_name: String,
-        cid: &String,
-        qos: QosLevel,
-        tx: Sender<ClientEvent>,
-    ) -> Result<(), MqttError> {
-        self.topics
-            .subscribe(topic_name, qos, cid, tx)
-            .map_err(|_| MqttError::RwLockError)?;
-
-        Ok(())
-    }
-
-    pub fn remove_subscriber_from_topic(&mut self, topic_name: &String, cid: &String) {
-        self.topics.unsubscribe(cid, topic_name);
     }
 }
 

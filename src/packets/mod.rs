@@ -358,7 +358,7 @@ impl VariableHeader {
                 );
 
                 if protocol_version != ProtocalVersion::Four
-                    || protocol_version != ProtocalVersion::Five
+                /*|| protocol_version != ProtocalVersion::Five*/
                 {
                     return Err(MqttError::UnacceptableProtocolLevel);
                 }
@@ -834,6 +834,14 @@ mod tests {
 
     use super::{headers::fixed_header::FixedHeader, Packet, VariableHeader};
     // https://cedalo.com/blog/mqtt-packet-guide/
+
+    #[test]
+    fn test_pack_connack_packet() {
+        let bytes = Packet::make_connack(crate::packets::enums::ConnectReturnCode::Accepted, false);
+
+        println!("{:#?}", bytes.to_vec());
+    }
+
     #[test]
     fn test_unpack_connect_packet() {
         let data = vec![
@@ -1005,6 +1013,13 @@ mod tests {
         } else {
             panic!("Invalid packet");
         }
+    }
+
+    #[test]
+    fn test_pack_puback() {
+        let puback = Packet::make_puback(0);
+
+        println!("{:?}", puback.to_vec());
     }
 
     #[test]

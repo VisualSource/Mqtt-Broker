@@ -29,7 +29,7 @@ pub enum Command {
     },
     Unsubscribe {
         topics: Vec<String>,
-        client: String,
+        cid: String,
         callback: Responder<Result<(), MqttError>>,
     },
     DisconnectClient(String),

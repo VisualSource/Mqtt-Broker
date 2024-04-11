@@ -58,9 +58,7 @@ where
                         if len == 0 {
                             continue;
                         }
-
                         let (packet, packet_size) = Packet::unpack(bytes, protocol)?;
-
                         broker_info::sent_data(packet_size);
 
                         reader.consume(packet_size);
@@ -150,7 +148,7 @@ where
                             if message_bridge
                                 .send(Command::Unsubscribe {
                                     topics: tuples,
-                                    client: id.clone(),
+                                    cid: id.clone(),
                                     callback: r_tx,
                                 })
                                 .await
