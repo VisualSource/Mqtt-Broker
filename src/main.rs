@@ -8,13 +8,10 @@ mod packets;
 mod topic_heir;
 mod utils;
 
-use crate::core::{broker_info, enums::Command, App};
+use crate::core::{enums::Command, App};
 use crate::error::MqttError;
 use crate::handler::client_handler;
-use crate::{
-    core::enums::ClientEvent,
-    packets::{enums::SubackReturnCode, Packet},
-};
+
 use log::{debug, info};
 use tokio::{select, sync::mpsc::channel};
 
@@ -62,109 +59,27 @@ async fn main() -> Result<(), MqttError> {
                 Command::RegisterClient {
                     id,
                     message_channel,
-                    protocol: _,
+                    protocol,
                     clean_session,
                     callback,
                 } => {
-                    debug!("Register client ({})", id);
-                    if context.has_client(&id) {
-                        context.disconnect_client(&id).await;
-                    }
-
-                    context.update_client(&id, message_channel);
-
-                    if clean_session {
-                        context.clear_client_session(&id);
-                    }
-
-                    if callback.send(Ok(())).is_err() {
-                        log::error!("Client no longer exists");
-                    }
+                    context
+                        .connect(id, message_channel, protocol, clean_session, callback)
+                        .await
                 }
                 Command::Subscribe {
-                    client: cid,
+                    client,
                     topics,
                     callback,
-                } => {
-                    let client = match context.get_client(&cid) {
-                        None => {
-                            if callback.send(Err(MqttError::Unknown)).is_err() {
-                                log::error!("Client does not exist");
-                            }
-                            return;
-                        }
-                        Some(client) => (client.id, client.sender.clone()),
-                    };
+                } => context.subscribe(client, topics, callback),
 
-                    let mut codes = Vec::<SubackReturnCode>::new();
-                    for (topic, qos) in topics {
-                        debug!("Client {} Subscribe to {} with {}", cid, topic, qos);
-
-                        // 4.7.2  Topics beginning with $
-                        // The Server SHOULD prevent Clients from using such Topic Names to exchange messages with other Clients.
-                        // Server implementations MAY use Topic Names that start with a leading $ character for other purposes.
-
-                        let result = context.subscribe(topic, qos, client.0, client.1.clone());
-                        codes.push(result);
-                    }
-
-                    if callback.send(Ok(codes)).is_err() {
-                        log::error!("Client does not exist");
-                    }
-                }
-                Command::Publish { topic, payload } => {
-                    broker_info::received_published();
-                    if let Ok(subs) = context.subscribers(topic.clone()) {
-                        for (_, bridge, qos) in subs {
-                            broker_info::sent_published();
-                            let packet = Packet::make_publish(
-                                false,
-                                qos,
-                                false,
-                                topic.clone(),
-                                None,
-                                payload.clone(),
-                            );
-                            if let Err(e) = bridge.send(ClientEvent::Message(packet)).await {
-                                log::error!("receiver dropped: {}", e);
-                            }
-                        }
-                    }
-                }
+                Command::Publish { topic, payload } => context.publish(topic, payload).await,
                 Command::Unsubscribe {
                     topics,
                     cid,
                     callback,
-                } => {
-                    let client_id = match context.get_client(&cid) {
-                        None => {
-                            if callback.send(Err(MqttError::Unknown)).is_err() {
-                                log::error!("Client does not exist");
-                            }
-                            return;
-                        }
-                        Some(client) => client.id,
-                    };
-
-                    for topic in topics {
-                        debug!("Unsubscribe from topic '{}' for client '{}'", topic, cid);
-                        if context.unsubscribe(topic.clone(), client_id).is_err() {
-                            log::error!(
-                                "Failed to unsubscribe from topic '{}' for user '{}'",
-                                cid,
-                                topic
-                            );
-                        }
-                    }
-
-                    if callback.send(Ok(())).is_err() {
-                        log::error!("receiver dropped");
-                    }
-                }
-                Command::DisconnectClient(cid) => {
-                    debug!("Drop client: {}", cid);
-                    context.remove_client(&cid);
-                }
+                } => context.unsubscribe(cid, topics, callback),
+                Command::DisconnectClient(cid) => context.disconnect(cid),
                 Command::Exit => break,
             }
         }

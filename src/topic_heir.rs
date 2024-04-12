@@ -11,8 +11,8 @@ pub struct SubscriptionLeaf {
     qos: QosLevel,
     identifier: u128,
     bridge: Sender<ClientEvent>,
-    no_local: bool,
-    retain_as_published: bool,
+    //no_local: bool,
+    //retain_as_published: bool,
 }
 
 impl SubscriptionLeaf {
@@ -20,15 +20,15 @@ impl SubscriptionLeaf {
         qos: QosLevel,
         identifier: u128,
         bridge: Sender<ClientEvent>,
-        no_local: bool,
-        retain_as_published: bool,
+        //  no_local: bool,
+        // retain_as_published: bool,
     ) -> Self {
         Self {
             qos,
             bridge,
             identifier,
-            no_local,
-            retain_as_published,
+            //no_local,
+            //retain_as_published,
         }
     }
 }
@@ -254,7 +254,7 @@ mod tests {
 
         tree.insert(
             "$share/GroupA/hello/test".to_string(),
-            SubscriptionLeaf::new(QosLevel::AtMost, 7, s, false, false),
+            SubscriptionLeaf::new(QosLevel::AtMost, 7, s),
         )
         .expect("Failed to insert");
 
@@ -267,12 +267,12 @@ mod tests {
         let mut tree = SubscriptionTree::new();
         tree.insert(
             "$share/GroupA/hello/test".to_string(),
-            SubscriptionLeaf::new(QosLevel::AtMost, 7, s.clone(), false, false),
+            SubscriptionLeaf::new(QosLevel::AtMost, 7, s.clone()),
         )
         .expect("Failed to insert");
         tree.insert(
             "$share/GroupA/hello/test".to_string(),
-            SubscriptionLeaf::new(QosLevel::Exactly, 7, s, false, false),
+            SubscriptionLeaf::new(QosLevel::Exactly, 7, s),
         )
         .expect("Failed to insert");
 
@@ -285,7 +285,7 @@ mod tests {
         let mut tree = SubscriptionTree::new();
         tree.insert(
             "/hello/test".to_string(),
-            SubscriptionLeaf::new(QosLevel::AtMost, 7, s, false, false),
+            SubscriptionLeaf::new(QosLevel::AtMost, 7, s),
         )
         .expect("Failed to insert");
 
@@ -302,17 +302,17 @@ mod tests {
         let mut tree = SubscriptionTree::new();
         tree.insert(
             "/hello/test".to_string(),
-            SubscriptionLeaf::new(QosLevel::AtMost, 7, s, false, false),
+            SubscriptionLeaf::new(QosLevel::AtMost, 7, s),
         )
         .expect("Failed to insert");
         tree.insert(
             "/hello/test".to_string(),
-            SubscriptionLeaf::new(QosLevel::AtMost, 34, sc.clone(), false, false),
+            SubscriptionLeaf::new(QosLevel::AtMost, 34, sc.clone()),
         )
         .expect("Failed to insert");
         tree.insert(
             "$share/GroupA/hello/test".to_string(),
-            SubscriptionLeaf::new(QosLevel::AtMost, 34, sc, false, false),
+            SubscriptionLeaf::new(QosLevel::AtMost, 34, sc),
         )
         .expect("Failed to insert");
 
@@ -333,7 +333,7 @@ mod tests {
         let mut tree = SubscriptionTree::new();
         tree.insert(
             "/+/test".to_string(),
-            SubscriptionLeaf::new(QosLevel::AtMost, 7, s, false, false),
+            SubscriptionLeaf::new(QosLevel::AtMost, 7, s),
         )
         .expect("Failed to insert");
 
@@ -350,7 +350,7 @@ mod tests {
         let mut tree = SubscriptionTree::new();
         tree.insert(
             "#".to_string(),
-            SubscriptionLeaf::new(QosLevel::AtMost, 7, s, false, false),
+            SubscriptionLeaf::new(QosLevel::AtMost, 7, s),
         )
         .expect("Failed to insert");
 

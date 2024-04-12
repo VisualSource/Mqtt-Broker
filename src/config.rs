@@ -24,7 +24,7 @@ impl ConfigBuilder {
         }
     }
 
-    pub fn set_username(mut self, username: String) -> Self {
+    /*pub fn set_username(mut self, username: String) -> Self {
         self.username = Some(username);
         self
     }
@@ -42,7 +42,7 @@ impl ConfigBuilder {
     pub fn set_address(mut self, address: String) -> Self {
         self.address = address;
         self
-    }
+    }*/
 
     pub fn set_port(mut self, port: u16) -> Self {
         self.port = port;

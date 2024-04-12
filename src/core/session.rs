@@ -1,21 +1,17 @@
-use crate::packets::enums::QosLevel;
+use tokio::sync::mpsc::Sender;
+use uuid::Uuid;
+
+use super::enums::ClientEvent;
 
 pub struct Session {
-    pub subscriptions: Vec<(String, QosLevel)>,
+    pub id: u128,
+    pub bridge: Sender<ClientEvent>,
 }
 
 impl Session {
-    pub fn clear(&mut self) {
-        self.subscriptions.clear();
-    }
+    pub fn new(bridge: Sender<ClientEvent>) -> Self {
+        let id = Uuid::new_v4().as_u128();
 
-    pub fn new() -> Self {
-        Self {
-            subscriptions: Vec::new(),
-        }
-    }
-
-    pub fn add_subscription(&mut self, topic: String, qos: QosLevel) {
-        self.subscriptions.push((topic, qos));
+        Self { id, bridge }
     }
 }

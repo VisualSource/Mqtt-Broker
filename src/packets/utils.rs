@@ -156,7 +156,7 @@ pub fn encode_length(len: usize, bytes: &mut BytesMut) {
 /// ### UTF-8 String Pair
 /// A UTF-8 String Pair consists of two UTF-8 Encoded Strings. This data type is used to hold name-value pairs. The first string serves as the name, and the second string contains the value.
 /// ***Both strings MUST comply with the requirements for UTF-8 Encoded Strings*** [MQTT-1.5.7-1]. If a receiver (Client or Server) receives a string pair which does not meet these requirements it is a Malformed Packet. Refer to section 4.13 for information about handling errors.
-pub fn unpack_string_pair<'a, I>(iter: &mut I) -> Result<(String, String), MqttError>
+/*pub fn unpack_string_pair<'a, I>(iter: &mut I) -> Result<(String, String), MqttError>
 where
     I: Iterator<Item = &'a u8>,
 {
@@ -164,7 +164,7 @@ where
     let value = unpack_string(iter)?;
 
     Ok((key, value))
-}
+}*/
 
 #[derive(Debug, Default)]
 pub struct Props {
